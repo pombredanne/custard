@@ -627,6 +627,65 @@ updateDataset = (req, resp) ->
       dataset.save()
       return resp.send 200, dataset
 
+
+addNewDataset = (req, resp) ->
+  # can create dataset
+  # create datasetID
+  # create tool (gets toolid, with datasetID)
+  # if err
+  #  send fail 
+  # create dataset (with toolid default, with datasetID)
+  # if(err)
+  #   delete tool
+  #   send fail
+  # send ok
+  # create tool view datasetID
+
+
+
+
+  user = req.user.effective
+  body = req.body
+  User.canCreateDataset user, (err, can) ->
+    if err?
+      return resp.send err.statusCode, err.error
+    ToolInstance.create {user: user, toolName: body.tool}, (err, tool) ->
+        if err?
+          console.warn err
+          return resp.send 500, error: "Error installing tool: #{err}"
+        # Save dataset
+        dataset = new Dataset
+          toolID: tool.name
+          boxServer: tool.server
+          user: user.shortName
+          tool: body.tool
+          name: body.name
+          displayName: body.displayName
+          endpointSettings: tool.endpointSettings
+
+        dataset.save (err) ->
+          if err?
+            console.warn err
+            return resp.send 400, error: "Error saving dataset: #{err}"
+          # Update ssh keys. :todo: Doing _all_ the boxes seems like overkill.
+          User.distributeUserKeys user.shortName, (err) ->
+            if err?
+              console.warn "SSH key distribution error"
+              err = null
+          console.log "TOOL dataset.tool #{dataset.tool} body.tool #{body.tool}"
+          Dataset.findOneById dataset.box, req.user.effective.shortName, (err, dataset) ->
+            console.warn err if err?
+            resp.send 200, dataset
+            _addView user, dataset,
+              tool: 'datatables-view-tool'
+              displayName: 'View in a table' # TODO: use tool object
+            , (err, view) ->
+              if err?
+                console.warn "Error creating DT view: #{err}"
+
+
+
+
 addDataset = (req, resp) ->
   user = req.user.effective
   body = req.body
@@ -635,7 +694,7 @@ addDataset = (req, resp) ->
     if err?
       console.log "USER #{user} CANNOT CREATE DATASET"
       return resp.send err.statusCode, err.error
-    Box.create user, (err, box) ->
+    ToolInstance.create user, (err, box) ->
       if err?
         console.warn err
         return resp.send err.statusCode, error: "Error creating box: #{err.body}"

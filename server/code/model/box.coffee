@@ -9,22 +9,32 @@ ModelBase = require 'model/base'
 {Tool} = require 'model/tool'
 {Plan} = require 'model/plan'
 
-boxSchema = new Schema
-  users: [String]
-  name:
+toolInstanceSchema = new Schema
+  toolID: String # aka box
     type: String
     index: unique: true
-  server: String
-  boxJSON: Schema.Types.Mixed
-  uid:
+  unixUserID:
     type: Number
     index: unique: true
+  user: String
+  datasetID: 
+    type: String
+    index: true
+  boxServer: String
+  endpointSettings: Schema.Types.Mixed
+  displayName: String
+  tool: String
+  state: String
+  createdDate:
+    type: Date
+    default: Date.now()
+  updateDate: Date
 
-zDbBox = mongoose.model 'Box', boxSchema
+zDbToolInstance = mongoose.model 'ToolInstance', toolInstanceSchema
 
 _exec = (arg, callback) ->
   request.post
-    uri: "#{Box.endpoint arg.boxServer, arg.boxName}/exec"
+    uri: "#{ToolInstance.endpoint arg.boxServer, arg.boxName}/exec"
     form:
       apikey: arg.user.apiKey
       cmd: arg.cmd
@@ -36,8 +46,8 @@ getGitURL = (tool, server) ->
   else
     return tool.gitUrl
 
-class Box extends ModelBase
-  @dbClass: zDbBox
+class ToolInstance extends ModelBase
+  @dbClass: zDbToolInstance
   duplicateErrorCount: 0
 
   installTool: (arg, callback) ->
@@ -83,15 +93,15 @@ class Box extends ModelBase
       , callback
 
   endpoint: () ->
-    Box.endpoint @server, @name
+    ToolInstance.endpoint @server, @name
 
   save: (callback) ->
     unless @uid?
-      @uid = Box.generateUid()
+      @uid = ToolInstance.generateUid()
     super (err) =>
       if err? and err.code is 11000
         if @duplicateErrorCount <3
-          @uid = Box.generateUid()
+          @uid = ToolInstance.generateUid()
           @save callback
           @duplicateErrorCount += 1
         else
@@ -114,9 +124,12 @@ class Box extends ModelBase
     @findOneByName boxName, (err, box) ->
       callback err, box?.users
 
-  @create: (user, callback) ->
-    boxName = @_generateBoxName()
-    [err_, plan] = Plan.getPlan user.accountLevel
+  @create: (opt, callback) ->
+    # check can I install tool
+    # callback { err: "cannot use tool"}, null (if not allowed)
+
+    tooID = @_generateToolInstanceName()
+    [err_, plan] = Plan.getPlan opt.user.accountLevel
     server = plan?.boxServer
     if not server
       return callback
@@ -124,18 +137,17 @@ class Box extends ModelBase
         body: JSON.stringify(error: "Plan/Server not present")
       , null
 
-    console.log "server #{server} boxName #{boxName}"
+    console.log "server #{server} toolID #{toolID}"
 
-    # TODO: we don't need multiple users
-    box = new Box
-      users: [user.shortName]
-      name: boxName
+    toolInstance = new ToolInstance
+      user: user.shortName
+      toolID: toolID
       server: server
 
-    box.save (err) ->
+    toolInstance.save (err) ->
       # The URI we need should have "box" between the server name and the
       # box name. Bit tricky to do. :todo: make better (by fixing cobalt?).
-      uri = "#{Box.endpoint server, boxName}"
+      uri = "#{ToolInstance.endpoint server, boxName}"
       uri = uri.split '/'
       # Insert 'box' just after 3rd element.
       uri.splice 3, 0, 'box'
@@ -145,10 +157,10 @@ class Box extends ModelBase
         uri: uri
         form:
           apikey: user.apiKey
-          uid: box.uid
+          uid: toolInstance.unixUserID
       , (err, res, body) ->
-        box.boxJSON = JSON.parse body
-        box.save (err) ->
+        toolInstance.endpointSettings = JSON.parse body
+        toolInstance.save (err) ->
           if err?
             callback err, null
           else if res.statusCode isnt 200
@@ -156,9 +168,9 @@ class Box extends ModelBase
           else
             Plan.setDiskQuota box, user.accountLevel, (err) ->
               console.warn "setDiskQuota on #{box.name} error: #{err}"
-            callback null, box
+            toolInstance.installTool opt.toolName, callback
 
-  @_generateBoxName: ->
+  @_generateToolInstanceName: ->
     r = Math.random() * Math.pow(10,9)
     return nibbler.b32encode(String.fromCharCode(r>>24,(r>>16)&0xff,(r>>8)&0xff,r&0xff)).replace(/[=]/g,'').toLowerCase()
 
@@ -167,8 +179,8 @@ class Box extends ModelBase
     min = 4000
     Math.floor(Math.random() * (max - min + 1)) + min
 
-exports.Box = Box
+exports.ToolInstance = ToolInstance
 
 exports.dbInject = (dbObj) ->
-  Box.dbClass = zDbBox = dbObj
-  Box
+  ToolInstance.dbClass = zDbToolInstance = dbObj
+  ToolInstance
