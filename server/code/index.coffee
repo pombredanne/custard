@@ -1,3 +1,5 @@
+process.title = 'custard ' + process.argv[2..].join ' '
+
 nodetime = require 'nodetime'
 
 if process.env.NODETIME_KEY
@@ -193,7 +195,7 @@ app.configure ->
 
   # Add Connect Assets
   app.use assets({src: 'client'})
-  if not process.env.NODE_ENV
+  if not /staging|production/.test process.env.NODE_ENV
     # Set the public folder as static assets
     app.use express.static(process.cwd() + '/shared')
   if process.env.NODETIME_KEY
@@ -233,16 +235,23 @@ checkSwitchUserRights = (req, res, next) ->
   switchingTo = req.params.username
   console.log "SWITCH #{req.user.effective.shortName} -> #{switchingTo}"
   User.findByShortName switchingTo, (err, user) ->
-    if err? or not user?
+    if err?
+      # findByShortName encountered an unexpected error
       return res.send 500, err
-    # Staff can (still) switch into any profile.
-    # Otherwise check the canBeReally field of the target user.
-    if req.user.real.isStaff or
-     (user.canBeReally and req.user.real.shortName in user.canBeReally)
+    if not user?
+      # findByShortName couldn't find the specified shortName
+      return res.send 404, { error: "The specified user does not exist"}
+    if req.user.real.isStaff
+      # the requesting user is staff: they can switch regardless of canBeReally
       req.switchingTo = user
       return next()
-    return res.send 403, { error:
-      "#{req.user.real.shortName} cannot switch to #{switchingTo}"}
+    if user.canBeReally and req.user.real.shortName in user.canBeReally
+      # the specified shortName is in the requesting user's canBeReally
+      req.switchingTo = user
+      return next()
+    # otherwise, the specified shortName exists, this is not a staff user,
+    # and the shortName is not in canBeReally, which means they can't switch.
+    return res.send 403, { error: "#{req.user.real.shortName} cannot switch to #{switchingTo}"}
 
 # Render the main client side app
 renderClientApp = (req, resp) ->
@@ -257,6 +266,7 @@ renderClientApp = (req, resp) ->
       recurlyDomain: process.env.RECURLY_DOMAIN
       flash: req.flash()
       environment: process.env.NODE_ENV
+      loggedIn: 'real' of usersObj
 
 # (internal) Add a view to a dataset
 _addView = (user, dataset, attributes, callback) ->
@@ -300,12 +310,12 @@ switchUser = (req, resp) ->
   req.user.effective = getSessionUser switchingTo
   req.session.save()
   resp.writeHead 302,
-    location: "/"   # How to give full URL here?
+    location: "/datasets"   # How to give full URL here?
   resp.end()
 
 login = (req, resp) ->
   passport.authenticate("local",
-    successRedirect: "/"
+    successRedirect: "/datasets"
     failureRedirect: "/login"
     failureFlash: true
   )(req,resp)
@@ -402,6 +412,8 @@ postStatus = (req, resp) ->
 
 # Render login page
 app.get '/login/?', (req, resp) ->
+  if req.user?.real
+    return resp.redirect '/datasets'
   resp.render 'login',
     errors: req.flash('error')
 
@@ -438,6 +450,9 @@ verifyRecurly = (req, resp) ->
 
 renderServerAndClientSide = (options, req, resp) ->
   fs.readFile "client/template/#{options.page}.eco", (err, contentTemplate) ->
+    if err?
+      console.warn "Template #{options.page} not found when rendering server side"
+      return resp.send 500, {error: "Template not found: #{err}"}
     _.extend options, pageTitles.SubNav[options.page]
     options.subnav ?= 'subnav'
     fs.readFile "client/template/#{options.subnav}.eco", (err, subnavTemplate) ->
@@ -453,7 +468,8 @@ renderServerAndClientSide = (options, req, resp) ->
               recurlyDomain: process.env.RECURLY_DOMAIN
               flash: req.flash()
               environment: process.env.NODE_ENV
-#
+              loggedIn: 'real' of usersObj
+
 # Allow set-password, signup, docs, etc, to be visited by anons
 # Note: these are NOT regular expressions!!
 app.get '/set-password/:token/?', renderClientApp
@@ -478,17 +494,9 @@ app.get '/terms/enterprise-agreement/?', (req, resp) ->
 app.get '/terms/?', (req, resp) ->
   renderServerAndClientSide page: 'terms', req, resp
 
-app.get '/contact/?*', (req, resp) ->
-  renderServerAndClientSide {page: "contact", subnav: 'aboutnav'}, req, resp
-
-app.get '/about/?*', (req, resp) ->
-  renderServerAndClientSide {page: "about", subnav: 'aboutnav'}, req, resp
-
-app.get '/professional/?', (req, resp) ->
-  renderServerAndClientSide {page: "professional", subnav: 'professionalnav' }, req, resp
-
+# Anonymous (ie: logged-out) homepage
 app.get '/', (req, resp) ->
-  renderServerAndClientSide { page: "home", subnav: null }, req, resp
+  renderServerAndClientSide {page: "home", subnav: null}, req, resp
 
 # Switch is protected by a specific function.
 app.get '/switch/:username/?', checkSwitchUserRights, switchUser
@@ -538,10 +546,6 @@ postTool = (req, resp) ->
         public: publicBool
     else
       _.extend tool, body
-    # Start updating the tool instances (datasets and views)
-    console.log "Starting to update tool instances..."
-    tool.updateInstances (err, res) ->
-      console.log "Finished updating tool instances. #{err} #{res}"
     tool.gitCloneOrPull dir: process.env.CU_TOOLS_DIR, (err, stdout, stderr) ->
       console.log err, stdout, stderr
       if err?
@@ -599,7 +603,7 @@ getDataset = (req, resp) ->
       return resp.send 500, error: 'Error trying to find datasets'
     else if not dataset
       console.warn "Could not find a dataset with {box: '#{req.params.id}', user: '#{req.user.effective.shortName}'}"
-      return resp.send 404
+      return resp.send 404, error: "We can't find this dataset, or you don't have permission to access it."
     else
       return resp.send 200, dataset
 
@@ -782,6 +786,7 @@ app.get '/api/:user/sshkeys/?', listSSHKeys
 app.put '/api/:user/subscription/change/:plan/?', changePlan
 
 # Catch all other routes, send to client app
+# eg: /datasets, /dataset/abc1234, /signup/free
 app.get '*', renderClientApp
 
 port = process.env.CU_PORT or 3001
@@ -792,8 +797,7 @@ if existsSync(port)
 # Start Server
 server = app.listen port, ->
   if existsSync(port)
-    fs.chmodSync port, 0o600
-    child_process.exec "chown www-data #{port}"
+    fs.chmodSync port, 0o660
   console.log "Listening on #{port}\nPress CTRL-C to stop server."
 
 # Wait for all connections to finish before quitting

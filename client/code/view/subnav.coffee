@@ -100,7 +100,7 @@ class Cu.View.DataHubNav extends Backbone.View
           $('.context-switch input').removeClass('loading').trigger 'keyup'
       error: (jqXHR, textStatus, errorThrown) ->
         $('.context-switch input').removeClass 'loading'
-        console.warn 'Could not query users API', errorThrown
+        Backbone.trigger 'error', null, {responseText: "Could not query users API"}, errorThrown
 
   keyupContextSearch: (e) ->
     if e.which == 40
@@ -260,14 +260,11 @@ class Cu.View.Toolbar extends Backbone.View
   hideDataset: ->
     @model.destroy
       success: (model, response, options) =>
-        window.app.navigate "/", {trigger: true}
+        window.app.navigate "/datasets", {trigger: true}
         setTimeout ->
           view = new Cu.View.DatasetTile {model: model}
           $('.new-dataset-tile').after view.render().el
         , 500
-      error: (model, xhr, options) =>
-        alert('Sorry, your dataset could not be hidden')
-        console.warn 'Dataset could not be hidden!', model, xhr, options
 
   renameDataset: ->
     w = $('#dataset-meta h3').width() + 100
@@ -284,7 +281,7 @@ class Cu.View.Toolbar extends Backbone.View
           window.location = "/dataset/#{dataset.get 'box'}/"
 
   gitSshTool: (e) ->
-      event.stopPropagation()
+      e.stopPropagation()
       showOrAddSSH window.selectedTool, 'tool'
 
   showDropdownMenuCloser: ->
@@ -312,10 +309,10 @@ class Cu.View.Toolbar extends Backbone.View
       @model.save {},
         success: =>
           _gaq.push ['_trackEvent', 'datasets', 'rename', @newName]
-        error: (e) =>
+        error: (model, xhr, options) =>
           $label.text @oldName
           @model.set 'displayName', @oldName
-          console.warn 'error saving new name', e
+          Backbone.trigger 'error', model, xhr, options
 
   editableNameEscaped: (e) ->
     e.preventDefault()
@@ -345,13 +342,6 @@ class Cu.View.HelpNav extends Backbone.View
     this
 
 
-class Cu.View.AboutNav extends Backbone.View
-  className: 'subnav-wrapper'
-
-  render: ->
-    @$el.html(JST['aboutnav'] @options).find(".nav a[href='#{window.location.pathname}']").parent().addClass('active')
-    this
-
 
 class Cu.View.ToolShopNav extends Backbone.View
   className: 'subnav-wrapper'
@@ -373,22 +363,3 @@ class Cu.View.ToolShopNav extends Backbone.View
     @
 
 
-class Cu.View.ProfessionalNav extends Backbone.View
-  className: 'subnav-wrapper professional'
-
-  events:
-      'click .nav-pills a': 'navClick'
-
-  navClick: (e) ->
-    e.preventDefault()
-    e.stopPropagation()
-    if $(e.target.hash).length > 0
-      $('html, body').animate
-        scrollTop: $(e.target.hash).offset().top - 40
-      , 250
-
-  render: ->
-    @$el.html(JST['professionalnav'])
-      .find(".nav a[href='#{window.location.pathname}']")
-      .parent().addClass('active')
-    this

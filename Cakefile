@@ -1,7 +1,11 @@
-fs = require 'fs'
-which = require 'which'
 {spawn, exec} = require 'child_process'
+fs = require 'fs'
+
+glob = require 'glob'
+which = require 'which'
 async = require 'async'
+
+process.title = 'cake ' + process.argv[2..].join ' '
 
 pkg = JSON.parse fs.readFileSync('./package.json')
 testCmd = pkg.scripts.test
@@ -30,10 +34,7 @@ build = (watch, callback) ->
 
 task 'clean', ->
   console.log "Cleaning database and inserting fixtures"
-  cp = require 'child_process'
-  cp.exec 'test/cleaner.coffee'
-   
-  
+  exec 'test/cleaner.coffee'
 
 task 'build', ->
   build false, ->
@@ -44,6 +45,7 @@ task 'test', 'Run unit tests', ->
 
 task 'dev', 'start dev env', ->
   log 'Watching coffee files'
+  process.env.NODE_ENV = 'testing'
   supervisor = spawn 'node', ['./node_modules/supervisor/lib/cli-wrapper.js','-w','server/js,server/template,shared/js', '-e', 'js|html', 'server']
   supervisor.stdout.pipe process.stdout
   supervisor.stderr.pipe process.stderr
@@ -52,11 +54,13 @@ task 'dev', 'start dev env', ->
     # watch_js
 
 Selenium = ->
-  se = spawn 'java', ['-jar', 'selenium-server-standalone-2.29.0.jar',
-    '-Dwebdriver.chrome.driver=chromedriver']
-  se.stdout.pipe process.stdout
-  se.stderr.pipe process.stderr
-  log 'Selenium started'
+  glob "selenium-server-standalone-2.*.jar", null, (err, files) ->
+    jarfile = files[files.length-1]
+    se = spawn 'java', ['-jar', jarfile,
+      '-Dwebdriver.chrome.driver=chromedriver']
+    se.stdout.pipe process.stdout
+    se.stderr.pipe process.stderr
+    log 'Selenium started'
 
 task 'se', 'start selenium', Selenium
 task 'Se', 'start Selenium', Selenium

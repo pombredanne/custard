@@ -7,7 +7,7 @@
   <h2>Data Scientist</h2>
   <p class="cost">$29<small>/mth</small></p>
   <p>Unlimited datasets</p>
-  <p class="muted">Each dataset can store 256MB data<br/>and use 30 CPU minutes per day</p>
+  <p class="muted">256MB storage per dataset<br/>30 CPU minutes per process</p>
   <% if window?.user.effective?.accountLevel.match /large/: %>
   <a class="currentPlan"><i class="icon-ok space"></i> Current Plan</a>
   <% else if window?.user.effective?: %>
@@ -21,7 +21,7 @@
   <h2>Explorer</h2>
   <p class="cost">$9<small>/mth</small></p>
   <p>10 datasets</p>
-  <p class="muted">Each dataset can store 64MB data<br/>and use 30 CPU minutes per day</p>
+  <p class="muted">64MB storage per dataset<br/>30 CPU minutes per process</p>
   <% if window?.user.effective?.accountLevel.match /medium/: %>
   <a class="currentPlan"><i class="icon-ok space"></i> Current Plan</a>
   <% else if window?.user.effective?: %>
@@ -36,7 +36,7 @@
   <h2>Community</h2>
   <p class="cost">Free</p>
   <p>3 datasets</p>
-  <p class="muted">Each dataset can store 8MB data<br/>and use 30 CPU minutes per day</p>
+  <p class="muted">8MB storage per dataset<br/>30 CPU minutes per process</p>
   <% if window?.user.effective?.accountLevel.match /free/: %>
   <a class="currentPlan"><i class="icon-ok space"></i> Current Plan</a>
   <% else: %>
@@ -50,4 +50,11 @@
   <h2>Corporate plans</h2>
   <p>Including sub-accounts,<br/>SLA, dedicated hardware,<br/>and hourly backups.</p>
   <a class="cta" href="/professional">Contact Us</a>
+</div>
+
+<div class="mini-plan journalists swcol">
+  <h2>Are you a journalist?</h2>
+  <p>ScraperWiki has been proudly supporting journalists since it was born.</p>
+  <p>If you&rsquo;re a journalist and need a free 20&#8209;dataset plan, let us know.</p>
+  <p><a class="btn btn-small" href="/journalists">Find out how to apply <i class="icon-chevron-right"></i></a></p>
 </div>

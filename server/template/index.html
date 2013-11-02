@@ -14,6 +14,8 @@
   <meta name="MobileOptimized" content="320">
   <meta http-equiv="cleartype" content="on">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="msapplication-TileImage" content="/image/tractor-metro-tile.png">
+  <meta name="msapplication-TileColor" content="#A1D2F1">
   <link rel="stylesheet" href="/vendor/style/bootstrap.min.css">
   <link rel="stylesheet" href="/style/scraperwiki.css">
   <link rel="stylesheet" href="/vendor/style/prettify.css">
@@ -31,7 +33,7 @@
   <script src="/vendor/js/underscore.js"></script>
   <script src="/vendor/js/backbone.js"></script>
   <script src="/vendor/js/backbone-relational.js"></script>
-  <script src="/vendor/js/prettydate.js"></script>
+  <script src="/vendor/js/humane.js"></script>
   <!--[if lt IE 9]> <script src="/vendor/js/excanvas.min.js"></script> <![endif]-->
   <script src="/vendor/js/spinners.min.js"></script>
   <script src="/vendor/js/prettify.js"></script>
@@ -43,7 +45,7 @@
     window.user = <%- user %>
     window.recurlyDomain = "<%- recurlyDomain %>"
     window.custardEnvironment = "<%- environment %>"
-    _gaq = [ ['_setAccount', 'UA-21451224-7'] ]
+    _gaq = [ ['_setAccount', 'UA-21451224-7'], ['_setDomainName', 'scraperwiki.com'] ]
     if(window.custardEnvironment == 'production'){
       (function(){
         var g = document.createElement('script'),
@@ -61,7 +63,7 @@
 <body>
   <header id="header">
     <div class="container">
-      <a id="logo" href="/">ScraperWiki</a>
+      <a id="logo" href="/<% if(typeof loggedIn !== 'undefined' && loggedIn){ %>datasets<% } %>">ScraperWiki</a>
       <nav>
         <%- nav %>
       </nav>
@@ -77,6 +79,14 @@
     <p class="container"><%=flash.info[0] %></p>
   </div>
   <% } %>
+  <div class="alert alert-error" id="error-alert">
+    <p class="container">
+      <a class="btn btn-small pull-right"
+        href="https://github.com/scraperwiki/custard/issues"
+        target="_blank">Report Bug</a>
+      <span></span>
+    </p>
+  </div>
   <div id="overlay"></div>
   <div id="subnav" class="container">
     <%- subnav %>
@@ -86,9 +96,9 @@
   </div>
   <div id="footer">
     <ul class="container inline">
-      <li><a href="/about/">About ScraperWiki</a></li>
+      <li><a href="/about/" data-nonpushstate>About ScraperWiki</a></li>
       <li><a href="/pricing/">Pricing</a></li>
-      <li><a href="/contact/">Contact Us</a></li>
+      <li><a href="/contact/" data-nonpushstate>Contact Us</a></li>
       <li><a href="/terms/">Terms &amp; Conditions</a></li>
       <li class="pull-right"><a href="https://github.com/scraperwiki/custard/blob/master/LICENCE" title="AGPL License">Open Source</a></li>
     </ul>

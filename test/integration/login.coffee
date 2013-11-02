@@ -1,5 +1,5 @@
 should = require 'should'
-{wd40, browser, login_url, home_url, prepIntegration} = require './helper'
+{wd40, browser, base_url, login_url, home_url, prepIntegration} = require './helper'
 
 request = require 'request'
 
@@ -29,12 +29,12 @@ createProfile = (options, done) ->
     form.logoUrl = options.logoUrl if options.logoUrl?
 
     request.post
-      uri: "#{home_url}/api/user"
+      uri: "#{base_url}/api/user"
       form: form
     , (err, resp, body) ->
       obj = JSON.parse body
       request.post
-        uri: "#{home_url}/api/token/#{obj.token}"
+        uri: "#{base_url}/api/token/#{obj.token}"
         form:
           password: options.password
       , done
@@ -59,9 +59,7 @@ describe 'Successful login', ->
         wd40.fill '#username', 'ickletest', ->
           wd40.fill '#password', 'toottoot', ->
             wd40.click '#login', ->
-              setTimeout ->
-                done()
-              , 500
+              setTimeout done, 500
 
       it 'shows my name', (done) ->
         # change "does not show my name" below as well if you change this
@@ -69,13 +67,25 @@ describe 'Successful login', ->
           text.should.include 'Ickle Test'
           done()
 
+      context 'when I revisit the login page', ->
+        before (done) ->
+          browser.get login_url, done
+
+        it 'redirects me to my (logged in) home page', (done) ->
+          wd40.trueURL (err, url) ->
+            url.should.equal home_url
+            done()
+
       context 'when I logout', ->
+        before (done) ->
+          browser.get home_url, done
+
         before (done) ->
           wd40.click '#header .logout a', done
 
-        it 'redirects me to the home page', (done) ->
+        it 'redirects me to the (logged out) home page', (done) ->
           wd40.trueURL (err, url) ->
-            url.should.equal home_url + "/"
+            url.should.equal "#{base_url}/"
             done()
 
 
@@ -142,7 +152,7 @@ describe 'Password', ->
           displayName: newUser
           email: "pass@example.com"
         request.post
-          uri: "#{home_url}/api/user"
+          uri: "#{base_url}/api/user"
           form: form
         , (err, resp, body) =>
           obj = JSON.parse body
@@ -153,7 +163,7 @@ describe 'Password', ->
       browser.deleteAllCookies done
 
     before (done) ->
-      browser.get "#{home_url}/set-password/#{@token}", done
+      browser.get "#{base_url}/set-password/#{@token}", done
 
     it 'shows my username', (done) ->
       wd40.getText '#content', (err, text) ->
@@ -173,7 +183,7 @@ describe 'Password', ->
       it 'redirected to home page', (done) ->
         wd40.waitForText "data hub", ->
           wd40.trueURL (err, url) ->
-            url.should.equal "#{home_url}/"
+            url.should.equal home_url
             done()
 
 
@@ -199,11 +209,11 @@ describe 'Switch', ->
 
   context 'when a staff member switches context', ->
     before (done) ->
-      browser.get "#{home_url}/switch/#{nonstaff_user}", done
+      browser.get "#{base_url}/switch/#{nonstaff_user}", done
 
     it 'redirected to home page', (done) ->
       wd40.trueURL (err, url) ->
-        url.should.equal "#{home_url}/"
+        url.should.equal home_url
         done()
 
     it 'shows me datasets of the profile into which I have switched', (done) ->
@@ -234,27 +244,57 @@ describe 'Switch', ->
         wd40.fill '#username', nonstaff_user, ->
           wd40.fill '#password', nonstaff_pass, ->
             wd40.click '#login', ->
-              browser.get "#{home_url}/switch/#{staff_user}", ->
-                # XXX could check that switch returns a 403 and message "Unstafforised"
-                browser.get home_url, done
+              browser.get "#{base_url}/switch/#{staff_user}", done
 
-    it "hasn't changed who I am", (done) ->
-      wd40.getText 'h1', (err, text) ->
-        text.should.include 'Ickle Test'
+    it 'it shows an error message', (done) ->
+      browser.source (err, text) ->
+        text.toLowerCase().should.include 'cannot switch'
+        done()
+      # might also want to check the 403 HTTP status??
+
+    it "it hasn't changed who I am", (done) ->
+      browser.get home_url, ->
         wd40.getText 'h1', (err, text) ->
-          text.should.not.include 'Testington'
-          done()
+          text.should.include 'Ickle Test'
+          wd40.getText 'h1', (err, text) ->
+            text.should.not.include 'Testington'
+            done()
 
-    it 'still shows me my datasets', (done) ->
+    it 'it still shows me my datasets', (done) ->
       wd40.getText '.dataset-list', (err, text) ->
         text.should.include dataset_name
         done()
 
-    it "doesn't show the context switching popup", (done) ->
+    it "it doesn't show the context switching popup", (done) ->
       browser.elementByCss '.context-switch', (err, element) ->
         browser.isVisible element, (err, visible) ->
           visible.should.be.true
           done()
+
+
+describe 'Unsuccessful switch', ->
+  prepIntegration()
+
+  staff_user = 'teststaff'
+  staff_pass = process.env.CU_TEST_STAFF_PASSWORD
+
+  context 'when a staff member attempts to switch to a context that doesn\'t exist', ->
+    before (done) ->
+      browser.deleteAllCookies done
+
+    before (done) ->
+      browser.get login_url, ->
+        wd40.fill '#username', staff_user, ->
+          wd40.fill '#password', staff_pass, ->
+            wd40.click '#login', done
+
+    before (done) ->
+      browser.get "#{base_url}/switch/IDONOTEXIST", done
+
+    it "it shows them an error", (done) ->
+      browser.source (err, text) ->
+        text.toLowerCase().should.include 'user does not exist'
+        done()
 
 
 describe 'Whitelabel', ->

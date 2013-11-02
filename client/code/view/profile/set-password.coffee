@@ -25,11 +25,9 @@ class Cu.View.SetPassword extends Backbone.View
         type: 'POST'
         dataType: 'json'
         success: (profile) =>
-          window.location = '/'
+          window.location = '/datasets'
         error: (jqxhr, textStatus, errorThrown) =>
-          console.warn "#{textStatus}: #{errorThrown}"
           @$el.children('form').prepend """<div class="alert"><strong>Oh no! Something went wrong.</strong> Are you sure you clicked the right link?</div>"""
           $button.attr('disabled', false).removeClass('loading').html('<i class="icon-ok space"></i> Try Again')
     else
-      console.warn "No password supplied"
       @$el.find('.control-group').addClass('error').children('label').text('You must supply a password:').next().focus()

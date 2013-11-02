@@ -10,6 +10,8 @@ class Cu.Router.Main extends Backbone.Router
     @subnavView = new Cu.AppView '#subnav'
     @overlayView = new Cu.AppView '#overlay'
     @navView ?= new Cu.View.Nav()
+    @errorView ?= new Cu.View.ErrorAlert el: '#error-alert'
+    @on 'route', @errorView.hide
     @on 'route', @trackPageView
 
     # TODO: this isn't a great place for this constant
@@ -23,13 +25,12 @@ class Cu.Router.Main extends Backbone.Router
     # Backbone seems to reverse route order
     # TODO: revert to standard routes?
     @route RegExp('.*'), 'fourOhFour'
-    @route RegExp('^/?$'), 'main'
-    @route RegExp('professional/?'), 'professional'
+    @route RegExp('^/?$'), 'homeAnonymous'
+    @route RegExp('^datasets?/?$'), 'homeLoggedIn'
     @route RegExp('(?:docs|help)/?'), 'help'
     @route RegExp('(?:docs|help)/([^/]+)/?'), 'help'
     @route RegExp('pricing/?'), 'pricing'
     @route RegExp('pricing/([^/]+)/?'), 'pricing'
-    @route RegExp('tools/?'), 'toolShop'
     @route RegExp('chooser/?'), 'toolChooser'
     @route RegExp('tools/people-pack/?'), 'peoplePack'
     @route RegExp('dataset/([^/]+)/?'), 'dataset'
@@ -42,14 +43,6 @@ class Cu.Router.Main extends Backbone.Router
     @route RegExp('subscribe/([^/]+)/?'), 'subscribe'
     @route RegExp('terms/?'), 'terms'
     @route RegExp('terms/enterprise-agreement/?'), 'termsEnterpriseAgreement'
-    @route RegExp('contact/?'), 'contact'
-    @route RegExp('about/?'), 'about'
-
-  main: ->
-    if window.user.effective?
-      @homeLoggedIn()
-    else
-      @homeAnonymous()
 
   trackPageView: (e) ->
     path = Backbone.history.getFragment()
@@ -67,12 +60,6 @@ class Cu.Router.Main extends Backbone.Router
       subnavView = new Cu.View.DataHubNav
       @appView.showView contentView
       @subnavView.showView subnavView
-
-  professional: ->
-    subnavView = new Cu.View.ProfessionalNav
-    contentView = new Cu.View.Professional
-    @appView.showView contentView
-    @subnavView.showView subnavView
 
   pricing: (upgrade) ->
     subnavView = new Cu.View.Subnav SubNav.pricing
@@ -163,6 +150,9 @@ class Cu.Router.Main extends Backbone.Router
     dataset.fetch
       success: (dataset, resp, options) =>
         v = dataset.get('views').findById(viewID)
+        if not v?
+          Backbone.trigger 'error', null, {responseText: "View not found"}
+          return
         window.selectedTool = v
         contentView = new Cu.View.PluginContent model: v
         @appView.showView contentView
@@ -170,11 +160,6 @@ class Cu.Router.Main extends Backbone.Router
         unless @subnavView.currentView instanceof Cu.View.Toolbar
           subnavView = new Cu.View.Toolbar model: dataset, view: v
           @subnavView.showView subnavView
-      error: (model, xhr, options) ->
-        console.warn xhr
-
-  toolShop: ->
-    app.navigate '/tools/people-pack/', true
 
   peoplePack: ->
     subnavView = new Cu.View.ToolShopNav {name: 'People Pack', url: '/tools/people-pack'}
@@ -183,8 +168,12 @@ class Cu.Router.Main extends Backbone.Router
     @subnavView.showView subnavView
 
   createProfile: ->
-    subnavView = new Cu.View.Subnav {text: 'Create Profile'}
-    contentView = new Cu.View.CreateProfile()
+    if window.user.real.isStaff
+      subnavView = new Cu.View.Subnav {text: 'Create Profile'}
+      contentView = new Cu.View.CreateProfile()
+    else
+      subnavView = new Cu.View.Subnav {text: '404: Not Found'}
+      contentView = new Cu.View.FourOhFour()
     @appView.showView contentView
     @subnavView.showView subnavView
 
@@ -196,7 +185,7 @@ class Cu.Router.Main extends Backbone.Router
         if tokenInfo.shortName?
           @shortName = tokenInfo.shortName
         else
-          console.warn 'no shortName!'
+          Backbone.trigger 'error', null, {responseText: "no shortName!"}
       complete: =>
         subnavView = new Cu.View.Subnav {text: 'Set your password'}
         contentView = new Cu.View.SetPassword {shortName: @shortName}
@@ -228,14 +217,3 @@ class Cu.Router.Main extends Backbone.Router
     @appView.showView contentView
     @subnavView.showView subnavView
 
-  contact: ->
-    subnavView = new Cu.View.AboutNav SubNav.contact
-    contentView = new Cu.View.Contact()
-    @appView.showView contentView
-    @subnavView.showView subnavView
-
-  about: ->
-    subnavView = new Cu.View.AboutNav SubNav.about
-    contentView = new Cu.View.About()
-    @appView.showView contentView
-    @subnavView.showView subnavView

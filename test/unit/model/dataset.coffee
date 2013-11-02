@@ -15,6 +15,7 @@ describe 'Client model: Dataset', ->
     helper.evalConcatenatedFile 'client/code/model/view.coffee'
   unless Cu.Model.Dataset?
     helper.evalConcatenatedFile 'client/code/model/dataset.coffee'
+  helper.evalConcatenatedFile 'shared/vendor/js/humane.js'
 
   describe 'URL', ->
     beforeEach ->
@@ -41,6 +42,52 @@ describe 'Client model: Dataset', ->
     xit 'has a related tool', ->
       tool = @dataset.get('tool')
       tool.get('displayName').should.equal 'Test App'
+
+  context "when model.destroy is called", ->
+    before ->
+      @dataset = new Cu.Model.Dataset
+        user: 'zarino'
+        box: '2416349265'
+
+      @save = sinon.stub @dataset, 'save'
+
+      @clock = sinon.useFakeTimers()
+
+      @dataset.destroy()
+
+    after ->
+      @dataset.save.restore()
+
+      @clock.restore()
+
+    it "model.toBeDeleted is set to 5 mins in future", ->
+      @save.firstCall.args[0].toBeDeleted.should.be.instanceOf Date
+
+      (@save.firstCall.args[0].toBeDeleted - new Date().getTime()).should.equal 5 * 60000
+
+    it "model.state is set to 'deleted'", ->
+      @save.firstCall.args[0].state.should.equal 'deleted'
+
+  context "when model.recover is called", ->
+    before ->
+      @dataset = new Cu.Model.Dataset
+        user: 'zarino'
+        box: '2416349266'
+
+      @save = sinon.stub @dataset, 'save'
+
+      @dataset.recover()
+
+    after ->
+      @dataset.save.restore()
+
+    it "model.toBeDeleted is set to null", ->
+      should.not.exist @save.firstCall.args[0].toBeDeleted
+
+    it "model.state is set to null", ->
+      should.not.exist @save.firstCall.args[0].state
+
+
 
 describe 'Server model: Dataset', ->
 
@@ -133,11 +180,11 @@ describe 'Server model: Dataset', ->
       before ->
         @saveSpy = sinon.spy Dataset.dbClass.prototype, 'save'
         # TODO: will actually connect to redis, stub properly
-        @publishStub = sinon.stub RedisClient.client, 'publish'
+        @publishStub = sinon.stub RedisClient, 'debouncedPublish'
 
       after ->
         Dataset.dbClass.prototype.save.restore()
-        RedisClient.client.publish.restore()
+        RedisClient.debouncedPublish.restore()
         RedisClient.client.end()
 
       before (done) ->
@@ -167,12 +214,13 @@ describe 'Server model: Dataset', ->
         @saveSpy.calledOnce.should.be.true
 
       it 'publishes the update to redis', ->
-        channel = "#{process.env.NODE_ENV}.cobalt.dataset.box.updated"
+        channel = "#{process.env.NODE_ENV}.cobalt.dataset.box.update"
         message = JSON.stringify
           boxes: ['foo', 'bar']
+          type: 'ok'
           message: 'I scrapped some page :D'
 
-        published = @publishStub.calledWith channel, message
+        published = @publishStub.calledWith @dataset.box, channel, message
         published.should.be.true
 
     context 'with an unknown type', ->
@@ -203,6 +251,35 @@ describe 'Server model: Dataset', ->
 
       it 'saves the status', ->
         @saveSpy.calledOnce.should.be.true
+
+  context "when dateset.statusUpdatedHuman is called", ->
+    before ->
+      @dataset = new Cu.Model.Dataset
+        name: 'updateHumanTest'
+        box: 'box24423'
+        tool: 'tool'
+        displayName: 'Update Human Test'
+        status:
+          type: 'ok'
+          message: 'just testing'
+          # status.updated is sufficiently old to test for
+          # https://github.com/scraperwiki/custard/issues/364
+          updated: "2013-04-12T11:00:57.847Z"
+      @never = new Cu.Model.Dataset
+        name: 'neverTest'
+        box: 'box24243'
+        tool: 'tool'
+        displayName: 'Never Test'
+
+    it "returns a human readable date", ->
+      humanDate = @dataset.statusUpdatedHuman()
+      should.equal typeof humanDate, 'string'
+      humanDate.should.not.be.empty
+      humanDate.should.include "ago"
+
+    it """returns "Never" when there is no status""", ->
+      humanDate = @never.statusUpdatedHuman()
+      should.equal humanDate, "Never"
 
   context 'when dataset.findToBeDeleted is called', ->
     it 'returns datasets with toBeDeleted in the past', (done) ->

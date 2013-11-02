@@ -1,4 +1,5 @@
 net = require 'net'
+helper = require './helper'
 
 _ = require 'underscore'
 request = require 'request'
@@ -46,11 +47,12 @@ describe 'API', ->
               email: 'stevejobs@sharklasers.com'
               description: 'Need data for thermonuclear war against android. Pls help. Kthxbai.'
           , (err, res, body) =>
-            @body = body
+            @body = JSON.parse(body)
             done()
 
         it 'returns a valid ticket ID', ->
-          JSON.parse(@body).id.should.be.above 1999
+          @body.should.have.property 'id'
+          1999.should.be.below @body.id
 
     describe 'Data request form (invalid request)', ->
       context 'POST /api/data-request', ->
@@ -466,7 +468,7 @@ describe 'API', ->
             done()
           socket.on 'error', (err) =>
             if /REFUS/.test err.code # ECONNREFUSED
-              console.warn "You are not running an identd locally, so this test won't work"
+              console.warn "          You are not running an identd locally, so this test won't work"
               @skip = true
             else
               throw err
@@ -705,6 +707,10 @@ describe 'API', ->
 
   describe 'Upgrading my account', ->
     context "When I'm upgrading from medium to large", ->
+
+      before (done) ->
+        helper.mediumizeMary done
+
       context 'PUT /api/:user/subscription/change/large-ec2', ->
         before (done) ->
           @user = 'mediummary'

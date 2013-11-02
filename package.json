@@ -32,11 +32,12 @@
     "qs": "~0.5.5",
     "xml2js": "~0.2.6",
     "nodetime": "~0.8.13",
-    "mailchimp": "~0.9.5",
+    "mailchimp": "~1.1.0",
     "exceptional-node": "~0.1.1",
     "nodealytics": "0.0.5",
     "redis": "~0.8.4",
     "hiredis": "~0.1.15",
+    "glob": "~3.2.6",
     "throttler-express": "git+https://github.com/scraperwiki/throttler-express.git"
   },
   "scripts": {
@@ -57,7 +58,8 @@
     "pow-mongodb-fixtures": "*",
     "backbone-relational": "~0.7.0",
     "jsdom": "~0.3.4",
-    "wd": "0.0.30",
+    "wd": "~0.1.1",
+    "wd40": "*",
     "mongodb": "~1.2.12",
     "sqlite3": "~2.1.7"
   },

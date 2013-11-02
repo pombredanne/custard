@@ -228,6 +228,7 @@ describe 'User (server)', ->
             displayName: 'Test Testerson Esq.'
             email: ['test@example.org']
             acceptedTerms: 1
+            emailMarketing: false
         , (err, user) =>
           @user = user
           done err
@@ -275,6 +276,27 @@ describe 'User (server)', ->
         @apiStub.listSubscribe.calledOnce.should.be.true
         @apiStub.listSubscribe.calledWithMatch({ email_address: 'emailme@example.org' }).should.be.true
 
+    context 'when add is called (with newsletter preference undefined)', ->
+      before (done) ->
+        @apiStub = listSubscribe: sinon.stub()
+        @mailChimpStub = sinon.stub mailchimp, 'MailChimpAPI', =>
+          return @apiStub
+        User.add
+          newUser:
+            shortName: 'testerson-ignores-email'
+            displayName: 'Test Testerson Ignores Email'
+            email: ['meh@example.org']
+            acceptedTerms: 1
+        , (err, user) =>
+          @user = user
+          done err
+
+      after ->
+        mailchimp.MailChimpAPI.restore()
+
+      it 'has not contacted the MailChimp API', ->
+        @apiStub.listSubscribe.calledOnce.should.be.false
+
 
   describe 'Disk quota', ->
 
@@ -291,7 +313,7 @@ describe 'User (server)', ->
         Plan.setDiskQuota.restore()
 
       it "should update the disk quota for each dataset", ->
-        correctArgs = @stub.calledWithMatch {name: '3006375731'}, 'grandfather'
+        correctArgs = @stub.calledWithMatch {name: '3006375731'}, 'grandfather-ec2'
         correctArgs.should.be.true
-        correctArgs = @stub.calledWithMatch {name: '3006375815'}, 'grandfather'
+        correctArgs = @stub.calledWithMatch {name: '3006375815'}, 'grandfather-ec2'
         correctArgs.should.be.true

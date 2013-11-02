@@ -1,4 +1,5 @@
 #= require namespace
+#= require util
 # Must come before any model that uses the mixin
 #= require model/boxable
 #= require model/tool
@@ -17,15 +18,21 @@ Backbone.history.on 'route', ->
   Backbone.history.routeCount += 1
   Backbone.history.firstLoad = false
 
+Cu.Util.patchErrors()
+
 $ ->
   window.app = new Cu.Router.Main()
   Backbone.history.start {pushState: on}
 
-  window.app.on 'route', ->
-    $('body > .alert').not('.permanent').remove()
+  # set a flag whenever the whole page is about to reload or close
+  # so that we can differentiate aborted ajax requests from failed ones
+  window.aboutToClose = false
+  $(window).on 'unload', ->
+    console.log '$(window).on unload'
+    window.aboutToClose = true
 
   if Backbone.history and Backbone.history._hasPushState
-    $(document).delegate "a[href]:not([href^=http])", "click", (evt) ->
+    $(document).delegate "a[href]:not([href^=http], [href^=mailto])", "click", (evt) ->
       unless $(@).is '[data-nonpushstate]'
         unless evt.metaKey or evt.ctrlKey
           href = $(@).attr "href"
@@ -69,8 +76,9 @@ class Cu.CollectionManager
   @collections: {}
 
   @get: (klass) ->
-    name = klass.name
+    name = klass.prototype.name
     if not @collections[name]
+      console.log "No #{name} in @collections"
       collection = new klass()
       collection.fetch
         success: ->

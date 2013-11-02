@@ -37,7 +37,7 @@ class Cu.Model.Dataset extends Backbone.RelationalModel
     app.tools().fetch
       success: =>
         tool = app.tools().get name
-        console.warn "tool #{name} not found" unless tool?
+        Backbone.trigger('error', null, {responseText: "Tool #{name} not found"}) unless tool?
         _.defer =>
           @fetch
             success: (dataset) =>
@@ -54,9 +54,9 @@ class Cu.Model.Dataset extends Backbone.RelationalModel
                 view.save wait:true,
                   success: (view) ->
                     callback null, view
-                  error: (view, err) ->
-                    console.warn err
-                    callback err, null
+                  error: (model, xhr, options) ->
+                    Backbone.trigger 'error', model, xhr, options
+                    callback xhr, null
               else
                 callback 'already installed', null
 
@@ -68,10 +68,7 @@ class Cu.Model.Dataset extends Backbone.RelationalModel
 
   statusUpdatedHuman: ->
     updated = @get('status')?.updated
-    if updated?
-      prettyDate(updated)
-    else
-      'Never'
+    humaneDate(updated)?.toLowerCase() or 'Never'
 
   isVisible: ->
     @get('state') isnt 'deleted'
@@ -87,6 +84,7 @@ Cu.Model.Dataset.setup()
 
 class Cu.Collection.Datasets extends Backbone.Collection
   model: Cu.Model.Dataset
+  name: 'Datasets'
   url: -> "/api/#{window.user.effective.shortName}/datasets"
 
   visible: ->

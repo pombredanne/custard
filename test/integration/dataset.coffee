@@ -1,5 +1,5 @@
 should = require 'should'
-{wd40, browser, login_url, home_url, prepIntegration} = require './helper'
+{wd40, browser, base_url, login_url, home_url, prepIntegration} = require './helper'
 
 describe 'Dataset', ->
   prepIntegration()
@@ -88,9 +88,9 @@ describe 'Dataset', ->
           browser.elementByCss '#logo', (err, link) ->
             link.click done
 
-        it 'should display the home page', (done) ->
+        it 'should display my home page', (done) ->
           browser.url (err, url) ->
-            url.should.match /\/$/
+            url.should.match /[/]datasets[/]?$/
             done()
 
         it 'should show the new dataset new name', (done) ->
@@ -133,7 +133,7 @@ describe 'Dataset', ->
 
     it 'shows an undo button', (done) ->
       @dataset.text (err, text) ->
-        text.should.include 'Undo' 
+        text.should.include 'Undo'
         done()
 
     context "When I click the undo button", ->
@@ -143,12 +143,12 @@ describe 'Dataset', ->
 
       it 'no longer shows an undo button', (done) ->
         @dataset.text (err, text) ->
-          text.should.not.include 'Undo' 
+          text.should.not.include 'Undo'
           done()
 
       it "shows the dataset title", (done) ->
         @dataset.text (err, text) ->
-          text.should.include 'Prune' 
+          text.should.include 'Prune'
           done()
 
   context "When I click on the Prune dataset", ->
@@ -160,7 +160,7 @@ describe 'Dataset', ->
         , 500
 
     context "When I delete the dataset using the toolbar menu", ->
-      before (done) ->    
+      before (done) ->
         wd40.click '#dataset-meta .dropdown-toggle', ->
           wd40.click '#dataset-meta .hide-dataset', done
 
@@ -186,13 +186,23 @@ describe 'Dataset', ->
 
         it 'no longer shows an undo button', (done) ->
           @dataset.text (err, text) ->
-            text.should.not.include 'Undo' 
+            text.should.not.include 'Undo'
             done()
 
         it "shows the dataset title", (done) ->
           @dataset.text (err, text) ->
-            text.should.include 'Prune' 
+            text.should.include 'Prune'
             done()
 
+  context "When I go to a dataset URL that does not exist", ->
+    before (done) ->
+      browser.get "#{base_url}/dataset/doesnotexist", done
 
+    before (done) ->
+      setTimeout done, 1000
 
+    it 'shows a not found error', (done) ->
+      wd40.getText '#error-alert', (err, text) ->
+        text.should.be.a 'string'
+        text.should.not.be.empty
+        done err

@@ -1,11 +1,11 @@
 should = require 'should'
-{wd40, browser, login_url, home_url, prepIntegration} = require './helper'
+{wd40, browser, base_url, login_url, home_url, prepIntegration} = require './helper'
 
 describe 'Subscription Workflow', ->
   prepIntegration()
 
   before (done) ->
-    browser.get home_url + '/pricing', done
+    browser.get base_url + '/pricing', done
 
   before (done) =>
     wd40.getText 'body', (err, text) =>
@@ -65,12 +65,11 @@ describe 'Subscription Workflow', ->
       setTimeout done, 5000
 
     it 'subscribes me to the plan', (done) ->
-      wd40.getText 'body > .alert', (err, text) ->
+      wd40.getText 'body', (err, text) ->
         text.should.include "You've been subscribed to the Explorer plan!"
         done()
 
     it 'tells me to check my email', (done) ->
-      wd40.getText 'body > .alert', (err, text) ->
-        text.should.include "email"
-        text.should.include "activation"
+      wd40.getText 'body', (err, text) ->
+        text.should.include "Please check your email for an activation link."
         done()

@@ -9,4 +9,4 @@ class Cu.View.Home extends Backbone.View
   render: ->
     @el.innerHTML = JST['home']()
     @
-    
+

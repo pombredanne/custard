@@ -1,5 +1,5 @@
 should = require 'should'
-{wd40, browser, login_url, home_url, prepIntegration} = require './helper'
+{wd40, browser, base_url, login_url, home_url, prepIntegration} = require './helper'
 
 clickSSHButton = (done) ->
   wd40.click '#toolbar a[href$="/settings"] .dropdown-toggle', (err) ->
@@ -21,6 +21,9 @@ describe 'Dataset SSH Details', ->
       , 500
 
     context 'when I click on the importer tool\'s SSH in button', (done) ->
+      before (done) ->
+        setTimeout done, 500
+
       before clickSSHButton
 
       it 'a modal window appears', (done) =>
