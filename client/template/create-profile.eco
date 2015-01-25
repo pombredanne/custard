@@ -5,13 +5,13 @@
             <select name="accountlevel" id="accountlevel">
               <optgroup label="Paid accounts">
                 <option value="dataservices-ec2" selected>Data Services Customer</option>
+                <option value="xlarge-ec2">Enterprise</option>
                 <option value="large-ec2">Data Scientist</option>
-                <option value="medium-ec2">Explorer</option>
               </optgroup>
               <optgroup label="Free accounts">
                 <option value="journalist">Journalist</option>
                 <option value="opendata">Open Data</option>
-                <option value="free">Community</option>
+                <option value="free-trial">Free Trial</option>
               </optgroup>
             </select>
         </p>
@@ -26,6 +26,10 @@
         <p>
             <label for="email">New profile email:</label>
             <input type="text" name="email" id="email" placeholder="ceo@acme.com">
+        </p>
+        <p>
+            <label for="defaultcontext">Force user into data hub: <span class="muted">(optional)</span></label>
+            <input type="text" name="defaultcontext" id="defaultcontext" placeholder="megacorp">
         </p>
         <p>
             <button type="submit" class="btn btn-primary" id="create-profile"><i class="icon-ok space"></i> Create Profile</button>

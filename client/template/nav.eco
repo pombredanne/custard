@@ -1,11 +1,60 @@
 <ul>
-<li><a href="/tools/tablextract" data-nonpushstate>Table Xtract</a></li>
-<li><a href="/professional" data-nonpushstate>Professional Services</a></li>
-<li><a href="/help">Help</a></li>
-<li><a href="https://blog.scraperwiki.com/blog">Blog</a></li>
-<% if @displayName: %>
-<li class="logout"><a href="/logout" data-nonpushstate>Log out</a></li>
+<% if @effectiveUser?.displayName: %>
+<% if @isTrial: %>
+<li class="trial">
+  <a href="/pricing<% if @trialDaysLeft == 0: %>/expired<% end %>" class="<% if 10 >= @trialDaysLeft: %>
+        urgent
+    <% end %>">
+    <span id="free-trial-part">Free trial:</span>
+    <% if @trialDaysLeft == 0: %>
+      Expired
+    <% else if @trialDaysLeft == 1: %>
+      <%= @trialDaysLeft %> day left!
+    <% else if @trialDaysLeft < 4: %>
+      <%= @trialDaysLeft %> days left!
+    <% else: %>
+      <%= @trialDaysLeft %> days left
+    <% end %>
+  </a>
+</li>
+<% end %>
+<li class="user dropdown">
+  <a class="dropdown-toggle" data-toggle="dropdown">
+    <%= @effectiveUser?.displayName %>
+    <b class="caret"></b>
+  </a>
+  <ul class="dropdown-menu">
+    <% if @allUsers.length > 1: %>
+    <li class="contexts-header">Use ScraperWiki as:</li>
+    <% for user in @allUsers: %>
+    <li class="context">
+      <a href="/switch/<%= user.shortName %>" data-nonpushstate title="<%= user.shortName %>">
+        <span style="display: inline-block; width: 24px; height: 24px">
+          <img src="<%= user.logoUrl or user.avatarUrl %>">
+        </span>
+        <strong><%= user.displayName %></strong>
+        <% if user.shortName == @effectiveUser?.shortName: %>
+        <i class="icon-ok"></i>
+        <% end %>
+      </a>
+    </li>
+    <% end %>
+    <li class="divider" style="margin-top: 10px;"></li>
+    <li class="dashboard"><a href="/dashboard"><i class="icon-tasks space"></i> Dashboard</a></li>
+    <li class="divider"></li>
+    <% end %>
+    <li class="set-password"><a href="/set-password"><i class="icon-wrench space"></i> Change password</a></li>
+    <% if @recurlyAdminUrl: %>
+    <li class="billing"><a href="<%= @recurlyAdminUrl %>" data-nonpushstate><i class="icon-user space"></i> Edit billing details</a></li>
+    <% end %>
+    <li class="logout"><a href="/logout" data-nonpushstate><i class="icon-off space"></i> Log out</a></li>
+  </ul>
+</li>
+<li class="docs"><a href="/help">Docs</a></li>
+<li class="help"><a href="/contact" data-nonpushstate id="intercomButton" class="btn btn-danger">Help</a></li>
 <% else: %>
 <li class="login"><a href="/login" data-nonpushstate>Log in</a></li>
+<li class="pricing"><a href="/pricing">Sign up</a></li>
+<li class="docs"><a href="/help">Help</a></li>
 <% end %>
 </ul>

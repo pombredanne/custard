@@ -17,6 +17,7 @@ class Cu.Model.Dataset extends Backbone.RelationalModel
       key: 'tool'
       relatedModel: Cu.Model.Tool
       includeInJSON: 'name'
+      autoFetch: true
     }
   ]
 
@@ -68,7 +69,17 @@ class Cu.Model.Dataset extends Backbone.RelationalModel
 
   statusUpdatedHuman: ->
     updated = @get('status')?.updated
-    humaneDate(updated)?.toLowerCase() or 'Never'
+    if updated?
+      return moment(updated).fromNow()
+    else
+      return 'Never'
+
+  datasetCreatedHuman: ->
+    created = @get('createdDate')
+    if created?
+      return moment(created).fromNow()
+    else
+      return 'Never'
 
   isVisible: ->
     @get('state') isnt 'deleted'

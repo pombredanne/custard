@@ -22,6 +22,7 @@ toolSchema = new Schema
   gitUrl: String
   public: {type: Boolean, default: false}
   allowedUsers: [String]
+  allowedPlans: [String]
   manifest: Schema.Types.Mixed
   created:
     type: Date
@@ -32,40 +33,6 @@ zDbTool = mongoose.model 'Tool', toolSchema
 
 class exports.Tool extends ModelBase
   @dbClass: zDbTool
-
-  rsync: (boxServer, callback) =>
-    if 'testing' == process.env.NODE_ENV
-      callback()
-    else
-      child_process.exec "run-this-one rsync --delete -avz -e 'ssh -oUserKnownHostsFile=/dev/null -oStrictHostKeyChecking=no -i /etc/custard/tools_rsa' /opt/tools/ tools@#{boxServer}:", callback
-
-  gitCloneOrPull: (options, callback) ->
-    {Box} = require 'model/box'
-    @directory = "#{options.dir}/#{@name}"
-    # :todo: whitelist @directory
-    fs.exists @directory, (exists) =>
-      if not exists
-        cmd = "mkdir #{@directory}; cd #{@directory}; git init; git fetch #{@gitUrl}; git checkout FETCH_HEAD"
-      else
-        cmd = "cd #{@directory}; git fetch #{@gitUrl}; git checkout FETCH_HEAD"
-      child_process.exec cmd, =>
-        async.each Box.listServers(), @rsync, callback
-
-
-  # TODO: DRY
-  # This is only used in the edge case where the tool is in the custard DB,
-  # but not on the custard server
-  gitCloneIfNotExists: (options, callback) ->
-    {Box} = require 'model/box'
-    @directory = "#{options.dir}/#{@name}"
-    # :todo: whitelist @directory
-    fs.exists @directory, (exists) =>
-      if not exists
-        cmd = "mkdir #{@directory}; cd #{@directory}; git init; git fetch #{@gitUrl}"
-        child_process.exec cmd, =>
-          async.each Box.listServers(), @rsync, callback
-      else
-        callback null, null
 
   loadManifest: (callback) ->
     fs.exists @directory, (isok) =>
@@ -109,7 +76,8 @@ class exports.Tool extends ModelBase
       $or: [
         {user: args.user.shortName}
         {public: true}
-        allowedUsers: { $in:  [args.user.shortName] }
+        {allowedUsers: { $in: [args.user.shortName] }}
+        {allowedPlans: { $in: [args.user.accountLevel] }}
       ]
     , (err, doc) =>
       if doc is null
@@ -118,12 +86,24 @@ class exports.Tool extends ModelBase
         callback null, @makeModelFromMongo doc
 
   @findForUser: (shortName, cb) ->
-    @dbClass.find $or: [{user: shortName}, {public: true}, {allowedUsers: { $in:  [shortName]}}], (err, docs) =>
-      if docs is null
+    {User} = require 'model/user'
+    User.findByShortName shortName, (err, userModel) =>
+      if err
         cb err, null
       else
-        result = (@makeModelFromMongo(doc) for doc in docs)
-        cb null, result
+        @dbClass.find
+          $or: [
+            {user: shortName}
+            {public: true}
+            {allowedUsers: { $in: [shortName] }}
+            {allowedPlans: { $in: [userModel.accountLevel] }}
+          ]
+        , (err, docs) =>
+          if docs is null
+            cb err, null
+          else
+            result = (@makeModelFromMongo(doc) for doc in docs)
+            cb null, result
 
 exports.dbInject = (dbObj) ->
   Tool.dbClass = zDbBox = dbObj

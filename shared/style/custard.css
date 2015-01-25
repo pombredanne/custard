@@ -58,10 +58,6 @@ body.fullscreen .container {
   text-indent: -9000px;
   outline: none;
   background: transparent url(../image/header-logo.png) 0 11px no-repeat;
-  -moz-transition: margin-left 0.5s;
-  -webkit-transition: margin-left 0.5s;
-  -o-transition: margin-left 0.5s;
-  transition: margin-left 0.5s;
 }
 
 #logo:active {
@@ -77,10 +73,6 @@ body.fullscreen .container {
   position: absolute;
   top: 0;
   right: 0;
-  -moz-transition: right 0.5s;
-  -webkit-transition: right 0.5s;
-  -o-transition: right 0.5s;
-  transition: right 0.5s;
 }
 
 .fullscreen #header nav {
@@ -91,22 +83,36 @@ body.fullscreen .container {
   margin: 0;
 }
 
-#header nav li {
+#header nav > ul > li {
   float: left;
   list-style: none;
   display: none; /* hide non-essential nav links on small screens */
 }
 
-#header nav li.logout,
-#header nav li.login {
-  display: block;
+#header nav > ul > li.user,
+#header nav > ul > li.login {
+  display: block; /* show essential nav links on small screens */
 }
 
-#header nav li + li {
+#header nav > ul > li + li {
   margin-left: 25px;
 }
 
-#header nav li a {
+#header nav li.help {
+  margin-left: 20px; /* compensate for visual weight of Intercom.io button */
+}
+
+#header nav li.trial a.urgent {
+  color: #B94A48;
+}
+
+@media only screen and (max-width: 919px) {
+  #header nav li.trial #free-trial-part {
+    display: none
+  }
+}
+
+#header nav > ul > li > a {
   display: block;
   color: #666;
   line-height: 50px;
@@ -117,17 +123,94 @@ body.fullscreen .container {
   text-shadow: 0 1px 0 white;
 }
 
-#header nav li a:hover {
+#header nav > ul > li > a:hover {
   color: #333;
   text-decoration: none;
 }
 
-#header nav li.logout a {
-  color: #933;
+#header nav a.dropdown-toggle {
+  cursor: pointer;
 }
 
-#header nav li.logout a:hover {
-  color: #b00;
+#header .dropdown-toggle .caret {
+  margin-top: 22px;
+  border-top-color: #999;
+}
+
+#header .dropdown-menu {
+  top: 40px;
+  right: -15px;
+  left: auto;
+  font-size: 14px;
+}
+
+#header .dropdown-menu:before {
+  position: absolute;
+  top: -7px;
+  right: 11px;
+  display: inline-block;
+  border-right: 7px solid transparent;
+  border-bottom: 7px solid #ccc;
+  border-left: 7px solid transparent;
+  border-bottom-color: rgba(0, 0, 0, 0.2);
+  content: '';
+}
+
+#header .dropdown-menu:after {
+  position: absolute;
+  top: -6px;
+  right: 12px;
+  display: inline-block;
+  border-right: 6px solid transparent;
+  border-bottom: 6px solid #ffffff;
+  border-left: 6px solid transparent;
+  content: '';
+}
+
+#header .contexts-header {
+  padding: 10px 20px 5px 20px;
+  font-size: 12px;
+  line-height: 12px;
+  color: #999;
+}
+
+#header .context i.icon-ok,
+#header .context strong {
+  margin-left: 5px;
+  vertical-align: middle;
+  margin-top: 0;
+  font-weight: normal;
+}
+
+#header nav #intercomButton {
+  color: #fff;
+  text-shadow: none;
+  padding: 0 15px;
+  border-top: none;
+  -webkit-border-radius: 0;
+  -moz-border-radius: 0;
+  border-radius: 0;
+}
+
+#IModal #IntercomNewMessageContainer h1:after {
+  display: block;
+  content: "Report a bug or ask for help. Be as detailed as possible.";
+  color: #888;
+  font-size: 12px;
+  line-height: 18px;
+}
+
+#IModal #IntercomNewMessageContainer h1 {
+  top: 20px;
+}
+
+#IModal.intercom #IntercomNewMessageContainer form textarea:focus {
+  border-color: rgba(82,168,236,0.8);
+  outline: 0;
+  outline: thin dotted \9;
+  -webkit-box-shadow: inset 0 1px 1px rgba(0,0,0,0.075),0 0 8px rgba(82,168,236,0.6);
+  -moz-box-shadow: inset 0 1px 1px rgba(0,0,0,0.075),0 0 8px rgba(82,168,236,0.6);
+  box-shadow: inset 0 1px 1px rgba(0,0,0,0.075),0 0 8px rgba(82,168,236,0.6);
 }
 
 #header + .alert {
@@ -194,60 +277,30 @@ body.fullscreen .container {
   border-top-color: #eee; /* slightly lighter than normal bootstrap hr's */
 }
 
-#subnav-path {
+#subnav-path,
+.dashboard-subheader {
   line-height: 32px;
   text-rendering: optimizelegibility;
 }
 
-#subnav h1 {
+#subnav h1,
+.dashboard-subheader h1 {
   margin: 0;
   font-weight: normal;
   line-height: 32px;
 }
 
-#subnav-path > .btn-group > .btn {
+#subnav-path > .btn-group > .btn,
+#subnav-path.home h1,
+.dashboard-subheader h1 {
   color: #333;
   font-size: 24px;
   line-height: 32px;
   padding: 0 4px;
 }
 
-#subnav-path > .btn-group:first-child > .btn:first-child {
-  margin-left: -4px;
-}
-
-#subnav-path > .context-switch > a {
-  position: relative;
-  margin-left: -4px;
-  text-decoration: none;
-  /* We'll override these next settings for large-screened devices later */
-  width: 260px;
-  text-overflow: ellipsis;
-  overflow: hidden;
-  text-align: left;
-}
-
-#subnav-path > .context-switch > .btn {
-  padding-right: 20px;
-}
-
-#subnav-path > .context-switch > a.dropdown-toggle:hover,
-#subnav-path > .context-switch.open > a.dropdown-toggle {
-  border-color: #ccc;
-  padding-top: 4px;
-  padding-bottom: 4px;
-  margin-top: -4px;
-  margin-bottom: -4px;
-}
-
-#subnav-path > .context-switch > a .caret {
-  position: absolute;
-  top: 50%;
-  right: 6px;
-  margin-top: -1px;
-}
-
-#subnav-path > .btn-group > a img {
+#subnav-path h1 img,
+.dashboard-subheader h1 img {
   vertical-align: top;
   margin-right: 9px;
   -webkit-border-radius: 2px;
@@ -258,49 +311,16 @@ body.fullscreen .container {
   min-width: 32px;
 }
 
+#subnav-path > .btn-group:first-child > .btn:first-child {
+  margin-left: -4px;
+}
+
 #subnav-path .slash {
   font-size: 24px;
   color: #ccc;
   display: inline-block;
   padding: 1px;
   vertical-align: middle;
-}
-
-.context-switch .dropdown-menu {
-  width: 100%;
-  left: -3px;
-}
-
-.context-switch .dropdown-menu .search {
-  text-align: center;
-  padding: 7px 0 10px 0
-}
-
-.context-switch .dropdown-menu .search input {
-  margin-bottom: 0;
-  width: 75%;
-}
-
-.context-switch .dropdown-menu > .context-search-result > a {
-  line-height: 24px;
-  height: 24px;
-}
-
-.context-switch .context-search-result.selected {
-  background-color: #bdf;
-}
-
-.context-switch .context-search-result img {
-  margin-right: 5px;
-  height: 24px;
-  min-width: 24px;
-  vertical-align: -7px;
-}
-
-.context-switch .no-matches {
-  text-align: center;
-  padding-bottom: 5px;
-  color: #999;
 }
 
 #subnav-options .btn-group + .btn-group {
@@ -482,6 +502,232 @@ a.tile p.error {
   background-color: #e11b2c;
   color: #fff;
 }
+
+.dataset-list > table th,
+.dataset-list > table td,
+.dashboard table th,
+.dashboard table td {
+  text-align: left;
+  font-size: 14px;
+  line-height: 18px;
+}
+
+.dataset-list > table td,
+.dashboard table td  {
+  cursor: pointer;
+}
+
+.dataset-list > table td.icon,
+.dataset-list > table td.hide,
+.dashboard table td.icon,
+.dashboard table td.hide {
+  width: 16px;
+  max-width: 16px;
+  padding-left: 12px;
+  padding-right: 4px;
+}
+
+.dataset-list > table td.hide,
+.dashboard table td.hide {
+  display: table-cell;
+  padding: 8px 12px 0 4px;
+}
+
+.dataset-list > table td.icon > span,
+.dashboard table td.icon > span {
+  display: inline-block;
+  width: 16px;
+  height: 16px;
+  vertical-align: -3px;
+  background-color: #15af90;
+  -webkit-border-radius: 3px;
+  -moz-border-radius: 3px;
+  border-radius: 3px;
+}
+
+.dataset-list > table td.hide > span,
+.dashboard table td.hide > span {
+  display: none;
+  width: 20px;
+  height: 20px;
+  background: transparent url(../vendor/image/glyphicons-halflings.png) no-repeat -309px 3px;
+  -webkit-border-radius: 3px;
+  -moz-border-radius: 3px;
+  border-radius: 3px;
+}
+
+.dataset-list > table tr:hover td.hide > span {
+  display: inline-block;
+}
+
+.dataset-list > table td.hide:hover > span {
+  background-color: #e11b2c;
+}
+
+.dataset-list > table td.hide:hover > span,
+.dataset-list > table tr.error td.hide > span {
+  background-image: url(../vendor/image/glyphicons-halflings-white.png);
+}
+
+.dataset-list > table tr.error td.hide:hover > span {
+  background-image: url(../vendor/image/glyphicons-halflings.png);
+  background-color: #fff;
+}
+
+.dataset-list table tr.error > td,
+.dashboard table tr.error > td {
+  background-color: #e11b2c;
+  color: #fff;
+}
+
+.dataset-list table tr.error .muted,
+.dashboard table tr.error .muted {
+  color: inherit;
+  opacity: 0.7;
+}
+
+.dataset-list table tr.error:hover > td,
+.dashboard table tr.error:hover > td {
+  background-color: #CC0A1B;
+}
+
+.dataset-list td.status i[class*=" icon-"],
+.dataset-list td.status i[class^="icon-"],
+.dashboard td.status i[class*=" icon-"],
+.dashboard td.status i[class^="icon-"] {
+  margin-right: 3px;
+}
+
+.dataset-list tr.deleted td {
+  padding: 6px 8px;
+  vertical-align: middle;
+  text-align: center;
+  color: #aaa;
+  background-color: #f9f9f9;
+  text-shadow: 0 1px 0 #fff;
+}
+
+.dataset-list tr.deleted td .btn {
+  vertical-align: 1px;
+  margin-left: 5px;
+}
+
+.dataset-list th.sortable,
+.dashboard th.sortable {
+  cursor: pointer;
+}
+
+.dataset-list th.sortable [class^=icon-],
+.dashboard th.sortable [class^=icon-] {
+  display: none; /* hide arrows by default */
+  margin-top: 2px;
+  margin-left: 3px;
+  margin-right: -17px;
+}
+
+.dataset-list th.sorted-asc .icon-chevron-up,
+.dataset-list th.sorted-desc .icon-chevron-down,
+.dashboard th.sorted-asc .icon-chevron-up,
+.dashboard th.sorted-desc .icon-chevron-down {
+  display: inline-block;
+  opacity: 1 !important; /* !important saves us duplicating all those selectors again later */
+}
+
+.dataset-list th.sortable:hover .icon-chevron-up,
+.dashboard th.sortable:hover .icon-chevron-up {
+  display: inline-block; /* show ghostly up arrow when no sorting has been defined */
+  opacity: 0.5;
+}
+
+.dataset-list th.sorted-desc:hover .icon-chevron-up,
+.dashboard th.sorted-desc:hover .icon-chevron-up {
+  display: none; /* do not show the ghostly up arrow if descending sort has already been defined */
+}
+
+
+
+
+/* Dashboard page */
+
+#content > div.dashboard {
+  position: relative; /* for positioning the #show-only-errors button */
+}
+
+div.dashboard table td,
+div.dashboard table th {
+  padding: 6px;
+}
+
+div.dashboard tr.loading td,
+div.dashboard tr.ajax-error td {
+  text-align: center;
+  padding: 10px 0;
+  line-height: 16px;
+  color: #999;
+}
+
+div.dashboard tr.ajax-error td {
+  color: #a00;
+}
+
+div.dashboard tr.loading td img,
+div.dashboard tr.ajax-error td img {
+  vertical-align: 2px;
+  margin-right: 5px;
+}
+
+div.dashboard #show-only-errors {
+  position: absolute;
+  right: 0;
+  margin: 0;
+  z-index: 100;
+  padding: 5px 0 5px 20px;
+}
+
+div.dashboard #show-only-errors input {
+  vertical-align: 1px;
+  margin-right: 4px;
+}
+
+.dashboard-subheader {
+  margin: 60px 0 20px 0;
+}
+
+.dashboard-subheader small {
+  color: #999;
+  font-size: 16px;
+  margin-left: 10px;
+}
+
+.dashboard-subheader a:hover {
+  text-decoration: none;
+}
+
+.dashboard-subheader a:hover small {
+  color: #39c;
+  text-decoration: underline;
+}
+
+.dashboard-subheader a:hover h1 {
+  color: #069;
+}
+
+div.dashboard .empty table {
+  display: none;
+}
+
+div.dashboard .empty .dashboard-subheader {
+  opacity: 0.5;
+}
+
+div.dashboard .empty + .empty .dashboard-subheader {
+  margin-top: 0; /* bunch together 'disabled' headers, versus default 60px margin */
+}
+
+div.dashboard #show-only-errors + section .dashboard-subheader {
+  margin-top: 0; /* no top margin on first subheader */
+}
+
 
 
 
@@ -677,6 +923,7 @@ a.tile p.error {
   list-style: none;
   margin: 0;
   display: inline-block; /* stop toolbar item groups wrapping onto separate lines */
+  vertical-align: top; /* avoids weird vertical alignment issues introduced by default inline-block behaviour */
 }
 
 #dataset-tools > ul.tools {
@@ -684,7 +931,7 @@ a.tile p.error {
 }
 
 #dataset-tools > ul > li {
-  float: left;
+  display: inline-block; /* line list items up horizontally - won't work in IE7 */
 }
 
 #dataset-tools a.tool {
@@ -955,13 +1202,24 @@ a.tool canvas {
     font-size: 20px;
 }
 
+
+/* Deleted datasets */
+
+div.deleted-dataset {
+  text-align: center;
+  padding: 50px 0 30px;
+}
+
+
+/* Pricing */
+
 div.pricing {
   margin-left: -20px;
 }
 
 div.pricing .plan {
   position: relative;
-  height: 225px;
+  height: 280px;
   text-align: center;
   background-color: #ffdf5e;
   color: #330;
@@ -974,9 +1232,13 @@ div.pricing .plan {
   transition: box-shadow 0.1s linear, top 0.1s linear;
 }
 
+div.pricing .plan.explorer {
+  background-color: #FDECA8;
+}
+
 div.pricing .plan.glowing {
   margin: -6px -1px 14px 19px;
-  padding: 6px 0 26px 0;
+  padding: 6px 0;
   -webkit-box-shadow:  0px 1px 2px rgb(255, 204, 0);
   box-shadow: 0 0 40px rgb(255, 204, 0);
   border: 1px solid rgb(221, 204, 148);
@@ -993,11 +1255,7 @@ div.pricing .plan.glowing:after {
   opacity: 0.8;
 }
 
-div.pricing .plan.explorer {
-  background-color: #FDECA8;
-}
-
-div.pricing .plan.community {
+div.pricing .plan.freetrial {
   background-color: #FFFAE7;
   border: 2px dashed rgb(255, 223, 94);
   -webkit-border-radius: 5px;
@@ -1006,11 +1264,7 @@ div.pricing .plan.community {
   -webkit-box-shadow: none;
   box-shadow: none;
   width: 276px;
-  height: 221px;
-}
-
-div.pricing .plan.corporate {
-  background-color: #eee;
+  height: 276px;
 }
 
 div.pricing .plan h2 {
@@ -1018,8 +1272,10 @@ div.pricing .plan h2 {
 }
 
 div.pricing .plan .cost {
-  font-size: 21px;
-  line-height: 24px;
+  font-size: 48px;
+  line-height: 64px;
+  font-weight: 200;
+  margin-bottom: 5px;
 }
 
 div.pricing .plan .cost small {
@@ -1028,7 +1284,7 @@ div.pricing .plan .cost small {
 }
 
 div.pricing .plan p {
-  margin: 0 20px 10px 20px;
+  margin: 5px 20px 15px 20px;
 }
 
 div.pricing .plan p.muted {
@@ -1037,6 +1293,17 @@ div.pricing .plan p.muted {
   color: inherit;
   opacity: 0.5;
   margin-bottom: 15px;
+}
+
+div.pricing .plan ul {
+  margin: 20px 0 10px 0;
+}
+
+div.pricing .plan li {
+  list-style: none;
+  margin: 0px 20px 0px 20px;
+  font-size: 14px;
+  opacity: 0.5;
 }
 
 div.pricing .plan a {
@@ -1061,44 +1328,23 @@ div.pricing .cta:hover {
   text-shadow: 0 1px 0 rgba(0,0,0,0.7);
 }
 
-div.pricing .plan.corporate h2 {
-  margin-top: 0;
+div.pricing p.corporate {
+  clear: both;
+  padding: 20px 0 0 0;
+  margin: 0 20px 0 20px;
 }
 
-div.pricing .plan.corporate small {
-  display: block;
-  margin-top: 15px;
-  color: #999;
+
+/* Subscription page */
+
+#recurly-subscribe .recurly .plan .recurring_cost .cost,
+#recurly-subscribe .recurly .plan .name {
+  line-height: 36px;
 }
 
-div.pricing .plan.corporate p {
-  margin-top: 10px;
-  margin-bottom: 15px;
-}
 
-div.pricing .mini-plan {
-  padding: 10px;
-  width: 260px;
-  font-size: 14px;
-  line-height: 21px;
-}
 
-div.pricing .mini-plan p {
-  margin-bottom: 10px;
-  color: #777;
-}
-
-div.pricing .mini-plan h2 {
-  font-size: 18px;
-  line-height: 22px;
-  padding-bottom: 10px;
-  border-bottom: 1px solid #eee;
-  margin-bottom: 10px;
-}
-
-div.pricing .mini-plan .btn {
-  margin-top: 5px;
-}
+/* Help page */
 
 div.help {
   line-height: 24px; /* the default 21px is a bit tight for so much text */
@@ -1230,66 +1476,11 @@ div.help .case-study h3 {
   line-height: 30px;
 }
 
-div.hero-classic {
-  position: relative;
-  padding: 15px;
-  margin-bottom: 30px;
-  background: #dceefb url('/image/classic-graph-paper.gif') 8px 6px repeat;
-  border: 1px solid #cdcdcd;
-  color: #369;
-  text-shadow: 0 1px 0 #fff;
-  -webkit-border-radius: 6px;
-  -moz-border-radius: 6px;
-  border-radius: 6px;
-  clear: both;
-}
-
-div.hero-classic img {
-  display: none;
-}
-
-div.hero-classic > h1 {
-  margin-top: 0;
-  font-size: 32px;
-  line-height: 40px;
-  margin: 0 0 10px 0;
-}
-
-div.hero-classic p {
-  font-size: 18px;
-  line-height: 26px;
-}
-
-div.hero-classic p:last-child {
-  margin-bottom: 0;
-}
-
-
 /* Login page */
 
 .login-page {
-  padding: 0 30px;
-  -moz-transition: padding 0.5s;
-  -webkit-transition: padding 0.5s;
-  -o-transition: padding 0.5s;
-  transition: padding 0.5s;
-}
-
-.login-page label {
-  width: 220px;
-}
-
-.login-page .alert {
-  padding: 8px 14px;
-  width: 190px;
-}
-
-.login-page .popover {
-  width: 15em;
-}
-
-.login-page .popover.bottom .arrow:after {
-  border-bottom-color: #f7f7f7;
+  width: 280px;
+  margin: 40px auto;
 }
 
 .login-page h2 {
@@ -1297,10 +1488,14 @@ div.hero-classic p:last-child {
   line-height: 28px;
 }
 
-.classic-login {
-  margin-top: 40px;
+.login-page .alert {
+  padding: 8px 14px;
+  width: 250px;
 }
 
+.login-page input {
+  width: 266px;
+}
 
 
 
@@ -1327,7 +1522,7 @@ div.hero-classic p:last-child {
     width: 580px;
   }
 
-  #header nav li {
+  #header nav > ul > li {
     display: block;
   }
 
@@ -1390,40 +1585,6 @@ div.hero-classic p:last-child {
     margin: 0 20px 20px 0;
   }
 
-  div.hero-classic {
-    padding: 20px;
-  }
-
-  div.hero-classic p {
-    margin-right: 150px;
-  }
-
-  div.hero-classic img {
-    display: block;
-    position: absolute;
-    bottom: 0;
-    right: 20px;
-  }
-
-
-  /* Login page */
-
-  .login-page {
-    padding: 0;
-  }
-
-  .login-page .new-login {
-    width: 275px;
-    float: left;
-    border-right: 1px solid #ddd;
-  }
-
-  .login-page .classic-login {
-    width: 250px;
-    float: right;
-    margin-top: 0;
-  }
-
 }
 
 
@@ -1482,18 +1643,6 @@ div.hero-classic p:last-child {
     font-size: 18px;
   }
 
-  div.hero-classic p {
-    font-size: 21px;
-    line-height: 30px;
-  }
-
-
-  /* Login page */
-
-  .login-page {
-    padding: 20px 150px;
-  }
-
 }
 
 @media only screen and (min-width: 1220px) {
@@ -1505,13 +1654,6 @@ div.hero-classic p:last-child {
 
   div.help .case-study {
     margin-bottom: 40px;
-  }
-
-
-  /* Login page */
-
-  .login-page {
-    padding: 20px 300px;
   }
 
 }

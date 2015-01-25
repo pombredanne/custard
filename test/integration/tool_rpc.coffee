@@ -1,20 +1,13 @@
-# See custard/README.md for Selenium setup instructions
-
+require './setup_teardown'
 should = require 'should'
-{wd40, browser, base_url, login_url, home_url, prepIntegration} = require './helper'
+{wd40, base_url, browser, loginAndGo} = require './helper'
 
 describe 'Tool RPC', ->
-  prepIntegration()
 
   before (done) ->
-    browser.get login_url, ->
-      wd40.fill '#username', 'ehg', ->
-        wd40.fill '#password', 'testing', ->
-          wd40.click '#login', done
+    loginAndGo 'teststaff', process.env.CU_TEST_STAFF_PASSWORD, "/switch/ehg", done
 
   context "with a freshly created test app dataset", ->
-    before (done) ->
-      browser.waitForElementByCss '.dataset-list', 4000, done
 
     before (done) ->
       wd40.click '.new-dataset', ->
@@ -25,30 +18,64 @@ describe 'Tool RPC', ->
         browser.waitForElementByCss 'iframe', 7000, =>
           wd40.trueURL (err, url) =>
             @toolURL = url
+            @boxID = url.match(/dataset[/]([^/]+)[/]settings/)[1]
             done()
+
+    context 'when the readsettings button is pressed', ->
+      before (done) ->
+        wd40.switchToBottomFrame ->
+          wd40.click '#readsettings', done
+
+      it 'prints the settings', (done) ->
+        wd40.getText '#settings', (err, text) =>
+          text.should.not.be.empty
+          obj = JSON.parse text
+          obj.source.apikey.should.be.a.String.and.not.be.empty
+          obj.source.url.should.be.a.String.and.match new RegExp @boxID
+          obj.source.publishToken.should.be.a.String.and.not.be.empty
+          obj.source.box.should.be.a.String.and.equal @boxID
+          done()
+
+    context 'when the settings hash is cleared and the readsettings button is pressed again', ->
+      before (done) ->
+        wd40.click '#clearhash', ->
+          wd40.waitForText 'Settings will appear here', done
+
+      before (done) ->
+        wd40.switchToBottomFrame ->
+          wd40.click '#readsettings', done
+
+      it 'prints the settings', (done) ->
+        wd40.getText '#settings', (err, text) =>
+          text.should.not.be.empty
+          obj = JSON.parse text
+          obj.source.apikey.should.be.a.String.and.not.be.empty
+          obj.source.url.should.be.a.String.and.match new RegExp @boxID
+          obj.source.publishToken.should.be.a.String.and.not.be.empty
+          obj.source.box.should.be.a.String.and.equal @boxID
+          done()
 
     context 'when the redirect internal button is pressed', ->
       before (done) ->
-        wd40.switchToBottomFrame ->
-          wd40.click '#redirectInternal', (err, btn) ->
-            wd40.switchToTopFrame done
+        browser.get @toolURL, ->
+          wd40.switchToBottomFrame ->
+            wd40.click '#redirectInternal', (err, btn) ->
+              wd40.switchToTopFrame done
 
       it 'redirects the host to the specified URL', (done) ->
-        wd40.trueURL (err, url) ->
-          url.should.equal "#{base_url}/"
-          done()
+        regex = new RegExp "^#{base_url}/$"
+        wd40.waitForMatchingURL regex, done
 
     context 'when the redirect external button is pressed', ->
       before (done) ->
         browser.get @toolURL, ->
           wd40.switchToBottomFrame ->
             wd40.click '#redirectExternal', (err, btn) ->
-              wd40.switchToTopFrame done
+              wd40.switchToTopFrame ->
+                setTimeout done, 500
 
       it 'redirects the host to the specified URL', (done) ->
-        wd40.trueURL (err, url) ->
-          url.should.equal 'http://www.google.com/robots.txt'
-          done()
+        wd40.waitForMatchingURL /^http:\/\/www.google.com\/robots.txt$/, done
 
     context 'when the showURL button is pressed', ->
       before (done) ->
@@ -74,6 +101,24 @@ describe 'Tool RPC', ->
 
       it 'renames the dataset', (done) ->
         wd40.waitForText 'Test Dataset (renamed)', done
+
+    context 'when the user details button is pressed', ->
+      before (done) ->
+        browser.get @toolURL, ->
+          wd40.switchToBottomFrame ->
+            wd40.click '#getuserdetails', done
+
+      it 'it shows real username', (done) ->
+        wd40.waitForText 'real: teststaff', done
+
+      it 'it shows effective username', (done) ->
+        wd40.waitForText 'effective: ehg', done
+
+      it 'it shows real display name', (done) ->
+        wd40.waitForText 'General Test Testington', done
+
+      it 'it shows effecive display name', (done) ->
+        wd40.waitForText 'Chris Blower', done
 
     context 'when the alert button is pressed', ->
       before (done) ->

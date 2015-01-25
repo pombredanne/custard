@@ -5,8 +5,9 @@
 <!--[if (IE 8)&!(IEMobile)]><html class="no-js lt-ie9" lang="en"><![endif]-->
 <!--[if gt IE 8]><!--> <html class="no-js" lang="en"><!--<![endif]-->
 <head>
+  <script src="//cdn.optimizely.com/js/540030760.js"></script>
   <meta charset="utf-8">
-  <title>ScraperWiki</title>
+  <title><%= title %></title>
   <meta name="description" content="">
   <meta name="author" content="ScraperWiki Ltd">
   <!-- http://t.co/dKP3o1e -->
@@ -17,34 +18,44 @@
   <meta name="msapplication-TileImage" content="/image/tractor-metro-tile.png">
   <meta name="msapplication-TileColor" content="#A1D2F1">
   <link rel="stylesheet" href="/vendor/style/bootstrap.min.css">
+  <link rel="stylesheet" href="/vendor/style/guiders.css">
   <link rel="stylesheet" href="/style/scraperwiki.css">
   <link rel="stylesheet" href="/vendor/style/prettify.css">
   <link rel="stylesheet" href="/style/custard.css">
   <!--[if lt IE 9]>
     <link rel="stylesheet" href="/style/ie.css">
-    <script src="vendor/js/css3-mediaqueries.js"></script>
-    <script src="vendor/js/selectivizr-min.js"></script>
+    <script src="/vendor/js/css3-mediaqueries.js"></script>
+    <script src="/vendor/js/selectivizr-min.js"></script>
   <![endif]-->
+  <script>
+    window.console = window.console || { log: function(){} }
+  </script>
   <script src="/vendor/js/modernizr.custom.2.6.2.js"></script>
-  <script src="//ajax.googleapis.com/ajax/libs/jquery/1.8/jquery.min.js"></script>
+  <script src="/vendor/js/jquery.min.js"></script>
   <script src="/vendor/js/jquery.cookie.js"></script>
   <script src="/vendor/js/jquery.mousewheel.js"></script>
   <script src="/vendor/js/bootstrap.min.js"></script>
   <script src="/vendor/js/underscore.js"></script>
   <script src="/vendor/js/backbone.js"></script>
   <script src="/vendor/js/backbone-relational.js"></script>
-  <script src="/vendor/js/humane.js"></script>
+  <script src="/vendor/js/moment.min.js"></script>
   <!--[if lt IE 9]> <script src="/vendor/js/excanvas.min.js"></script> <![endif]-->
   <script src="/vendor/js/spinners.min.js"></script>
   <script src="/vendor/js/prettify.js"></script>
   <script src="/vendor/js/chroma.pack.min.js"></script>
+  <script src="/vendor/js/jquery.tinysort.min.js"></script>
+  <script src="/vendor/js/jquery.tinysort.charorder.min.js"></script>
   <script src="/vendor/js/ZeroClipboard.js"></script>
   <script src="/vendor/js/easyXDM.min.js"></script>
+  <script src="/vendor/js/intercom.v1.js"></script>
+  <script src="/vendor/js/guiders.js"></script>
   <script src="/js/custard.js"></script>
   <script>
     window.user = <%- user %>
     window.recurlyDomain = "<%- recurlyDomain %>"
     window.custardEnvironment = "<%- environment %>"
+    window.intercomAppId = "<%- intercomAppId %>"
+    window.intercomUserHash = "<%- intercomUserHash %>"
     _gaq = [ ['_setAccount', 'UA-21451224-7'], ['_setDomainName', 'scraperwiki.com'] ]
     if(window.custardEnvironment == 'production'){
       (function(){
@@ -63,7 +74,11 @@
 <body>
   <header id="header">
     <div class="container">
-      <a id="logo" href="/<% if(typeof loggedIn !== 'undefined' && loggedIn){ %>datasets<% } %>">ScraperWiki</a>
+      <% if(typeof loggedIn !== 'undefined' && loggedIn){ %>
+        <a id="logo" href="/datasets">ScraperWiki</a>
+      <% } else { %>
+        <a id="logo" href="/" data-nonpushstate>ScraperWiki</a>
+      <% } %>
       <nav>
         <%- nav %>
       </nav>

@@ -45,3 +45,6 @@ class Cu.Model.User extends Backbone.Model
 class Cu.Collection.User extends Backbone.Collection
   url: '/api/user'
   name: 'User'
+
+  comparator: (model) ->
+    model.get('displayName') or model.get('shortName')

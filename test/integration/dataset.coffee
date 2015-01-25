@@ -1,25 +1,34 @@
+require './setup_teardown'
 should = require 'should'
-{wd40, browser, base_url, login_url, home_url, prepIntegration} = require './helper'
+{wd40, browser, loginAndGo} = require './helper'
+cleaner = require '../cleaner'
 
 describe 'Dataset', ->
-  prepIntegration()
-
   randomname = "New favourite number is #{Math.random()}"
 
   before (done) ->
-    wd40.fill '#username', 'ehg', ->
-      wd40.fill '#password', 'testing', -> wd40.click '#login', done
+    # TODO(pwaller): Not sure why this is needed, but it interacts with the API
+    #                tests otherwise
+    cleaner.clear_and_set_fixtures done
+
   context 'when I click on an Apricot dataset', ->
     before (done) ->
+      loginAndGo "ehg", "testing", "/datasets", done
+
+    before (done) ->
       # wait for tiles to fade in
-      setTimeout ->
-        wd40.elementByPartialLinkText 'Apricot', (err, link) ->
-          link.click done
-      , 500
+      wd40.elementByPartialLinkText 'Apricot', (err, link) ->
+        return done(err) if err
+        link.click done
 
     it 'takes me to the Apricot dataset page', (done) ->
       wd40.trueURL (err, result) ->
         result.should.match /\/dataset\/(\w+)/
+        done()
+
+    it 'with "Apricot" in the page title', (done) ->
+      browser.title (err, title) ->
+        title.should.match /Apricot/g
         done()
 
     it 'has not shown the input box', (done) ->
@@ -50,6 +59,31 @@ describe 'Dataset', ->
     it '...and a button to pick more tools', ->
       @toolbarText.toLowerCase().should.include 'more tools'
 
+    context 'when I click the tool options icon', ->
+      before (done) ->
+        wd40.click '#toolbar a[href$="/settings"] .dropdown-toggle', done
+
+      it 'there is an API endpoints link', (done) ->
+        wd40.elementByCss '#tool-options-menu .api-endpoints', (err, el) ->
+          done(err)
+
+    (if process.env.SKIP_MODAL then xcontext else context) 'when I click the API endpoints link', (done) ->
+      before (done) ->
+        wd40.click '#tool-options-menu .api-endpoints', done
+
+      it 'I see the box’s SQL and HTTP API endpoints', (done) ->
+        wd40.elementByCss '#sql-endpoint', (err, el) ->
+          el.getValue (err, val) ->
+            val.should.equal 'https://localhost/3006375731/6cd21c903b864fe/sql'
+            wd40.elementByCss '#http-endpoint', (err, el) ->
+              el.getValue (err, val) ->
+                val.should.equal 'https://localhost/3006375731/6cd21c903b864fe/http'
+                done()
+
+      after (done) ->
+        wd40.click 'button[data-dismiss="modal"]', (err) ->
+          wd40.waitForInvisibleByCss '.modal-backdrop', done
+
     context 'when I click the title', ->
       before (done) ->
         browser.elementByCssIfExists '#editable-input', (err, wrapper) =>
@@ -78,9 +112,14 @@ describe 'Dataset', ->
               inputVisible.should.be.false
               done()
 
-        it 'has updated the title', (done) ->
+        it 'has updated the dataset title', (done) ->
           wd40.getText '#dataset-meta h3', (err, text) ->
             text.should.equal randomname
+            done()
+
+        it 'has updated the page title', (done) ->
+          browser.title (err, title) ->
+            title.should.match new RegExp(randomname, 'g')
             done()
 
       context 'when I go back home', ->
@@ -100,11 +139,15 @@ describe 'Dataset', ->
 
         context 'when I click the "hide" button on the dataset', ->
           before (done) ->
+            # If this fails in IE try moving the mouse cursor outside of
+            # the browser window while the test is running.
+            # http://jimevansmusic.blogspot.co.uk/2013/01/revisiting-native-events-in-ie-driver.html
             browser.elementByPartialLinkText randomname, (err, dataset) =>
               @dataset = dataset
               browser.moveTo @dataset, =>
                 @dataset.elementByCss '.hide', (err, hide) ->
-                  hide.click done
+                  wd40.waitForVisible hide, (err) ->
+                    hide.click done
 
           it 'the dataset is replaced by an undo button', (done) ->
             @dataset.text (err, text) ->
@@ -122,14 +165,17 @@ describe 'Dataset', ->
 
   context "When I hide the Prune dataset", ->
     before (done) ->
-      browser.get home_url, =>
-        setTimeout =>
-          wd40.elementByPartialLinkText 'Prune', (err, dataset) =>
-            @dataset = dataset
-            browser.moveTo @dataset, =>
-              @dataset.elementByCss '.hide', (err, hide) ->
+      loginAndGo "ehg", "testing", "/datasets", done
+
+    before (done) ->
+      setTimeout =>
+        wd40.elementByPartialLinkText 'Prune', (err, dataset) =>
+          @dataset = dataset
+          browser.moveTo @dataset, =>
+            @dataset.elementByCss '.hide', (err, hide) ->
+              wd40.waitForVisible hide, (err) ->
                 hide.click done
-        , 500
+      , 500
 
     it 'shows an undo button', (done) ->
       @dataset.text (err, text) ->
@@ -153,7 +199,7 @@ describe 'Dataset', ->
 
   context "When I click on the Prune dataset", ->
     before (done) ->
-      browser.get home_url, =>
+      loginAndGo "ehg", "testing", "/datasets", ->
         setTimeout =>
           wd40.elementByPartialLinkText 'Prune', (err, dataset) =>
             dataset.click done
@@ -194,15 +240,34 @@ describe 'Dataset', ->
             text.should.include 'Prune'
             done()
 
+  context "When I go to a dataset that was previously deleted", ->
+    before (done) ->
+      loginAndGo "ehg", "testing", "/dataset/4443057115", done
+
+    it 'shows a "dataset deleted" message', (done) ->
+      wd40.getText 'body', (err, text) ->
+        text.toLowerCase().should.include 'deleted'
+        done()
+
+    it 'tells me to "contact us for recovery"', (done) ->
+      wd40.getText 'body', (err, text) ->
+        text.toLowerCase().should.include 'contact us for recovery'
+        done()
+
   context "When I go to a dataset URL that does not exist", ->
     before (done) ->
-      browser.get "#{base_url}/dataset/doesnotexist", done
-
-    before (done) ->
-      setTimeout done, 1000
+      loginAndGo "ehg", "testing", "/dataset/doesnotexist", done
 
     it 'shows a not found error', (done) ->
-      wd40.getText '#error-alert', (err, text) ->
-        text.should.be.a 'string'
-        text.should.not.be.empty
-        done err
+      wd40.getText 'body', (err, text) ->
+        text.should.include 'Not found'
+        done()
+
+  context "When I go to a dataset in somebody else’s data hub, and I’m not staff", ->
+    before (done) ->
+      loginAndGo "test", "testing", "/dataset/1057304856", done
+
+    it 'shows a not found error', (done) ->
+      wd40.getText 'body', (err, text) ->
+        text.should.include 'Not found'
+        done()

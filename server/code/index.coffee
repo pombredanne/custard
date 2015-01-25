@@ -1,12 +1,5 @@
 process.title = 'custard ' + process.argv[2..].join ' '
 
-nodetime = require 'nodetime'
-
-if process.env.NODETIME_KEY
-  nodetime.profile
-    accountKey: process.env.NODETIME_KEY
-    appName: process.env.CU_NODETIME_APP
-
 net = require 'net'
 fs = require 'fs'
 path = require 'path'
@@ -18,18 +11,22 @@ require('http').globalAgent.maxSockets = 4096
 
 _ = require 'underscore'
 express = require 'express'
-na = require 'nodealytics'
+morgan  = require 'morgan'
+connect = require 'connect'
+session = require 'express-session'
+serveFavicon = require 'serve-favicon'
+cookieParser = require 'cookie-parser'
+connect = require 'connect'
 assets = require 'connect-assets'
 ejs = require 'ejs'
 passport = require 'passport'
 LocalStrategy = require('passport-local').Strategy
 mongoose = require 'mongoose'
-mongoStore = require('connect-mongo')(express)
+mongoStore = require('connect-mongo')(session)
 flash = require 'connect-flash'
 eco = require 'eco'
 checkIdent = require 'ident-express'
 request = require 'request'
-{Exceptional} = require 'exceptional-node'
 
 {User} = require 'model/user'
 {Dataset} = require 'model/dataset'
@@ -38,44 +35,58 @@ request = require 'request'
 {Box} = require 'model/box'
 {Subscription} = require 'model/subscription'
 {Plan} = require 'model/plan'
-{DataRequest} = require 'model/data_request'
 
 recurlySign = require 'lib/sign'
 throttle = require 'throttler-express'
 pageTitles = require '../../shared/code/page-titles'
 
+if not process.env.CU_DB
+  console.warn "CU_DB not set. Exiting."
+  process.exit 1
+
 # Set up database connection
 mongoose.connect process.env.CU_DB,
   server:
+    poolSize: 20
     auto_reconnect: true
     socketOptions:
       keepAlive: 1
-# Doesn't seem to do much.
+
 mongoose.connection.on 'error', (err) ->
   console.warn "MONGOOSE CONNECTION ERROR #{err}"
 
-Exceptional.API_KEY = process.env.EXCEPTIONAL_KEY
-
-if /production/.test process.env.NODE_ENV
-  na.initialize 'UA-21451224-7', 'scraperwiki.com'
-else
-  na =
-    trackPage: -> return true
-    trackEvent: -> return true
-
 # TODO: move into npm module
-nodetimeLog = (req, res, next) ->
+requestStream = null
+tmpRequestStream = fs.createWriteStream "request.csv", flags: 'a'
+tmpRequestStream.on 'open', () ->
+  requestStream = tmpRequestStream
+requestLog = (req, res, next) ->
+  requestStart = new Date()
+  unique = Math.random() * Math.pow(2, 32)
   matched = _.find app.routes[req.method.toLowerCase()], (route) ->
     if route.regexp.test req.url
       if route.path isnt '*'
         return true
   if matched?
     name = "#{req.method} #{matched.path}"
-    res.nodetimePromise = nodetime.time 'Custard request ', name, req.url
+    # Rewrites the send method of the response res so that we
+    # can time how long it takes between request and response.
     oldSend = res.send
     res.send = (args... ) ->
-      res.nodetimePromise.end()
-      oldSend.apply res, args
+      duration = new Date() - requestStart
+      # CSV file is:
+      # app,unique-request-id,route,URL,milliseconds
+      line = "custard,#{unique},#{name},#{req.url},#{duration}\n"
+
+      # The first time .send() is called we write a line to the
+      # log. Possibly it would be better to use the last time
+      # .send() is called, but this is way simpler.
+      res.send = oldSend
+      if requestStream
+        requestStream.write line, () ->
+          oldSend.apply res, args
+      else
+        oldSend.apply res, args
   return next()
 
 assets.jsCompilers.eco =
@@ -98,6 +109,13 @@ ensureAuthenticated = (req, res, next) ->
   return next() if req.isAuthenticated()
   res.redirect '/login'
 
+enforceFreeTrial = (req, res, next) ->
+  if req.user?.effective
+    if req.user.effective.accountLevel == 'free-trial'
+      if req.user.effective.daysLeft <= 0
+        return res.redirect '/pricing/expired'
+  return next()
+
 passport.serializeUser (user, done) ->
   done null, user
 
@@ -111,8 +129,16 @@ getSessionUser = (user) ->
   # changed (which can only be done by an admin using the database
   # panel).
   if not user
+    console.warn "MYSTERIOUS: user is not in the database"
     return {}
-  [err_, plan] = Plan.getPlan user.accountLevel
+
+  [err, plan] = Plan.getPlan user.accountLevel
+  if err
+    # We get here if there is no plan for the user's accountLevel.
+    # This "Can't Happen".
+    console.warn "MYSTERIOUS: user #{user.shortName} has no plan for their accountLevel #{user.accountLevel}"
+    return {}
+
   session =
     shortName: user.shortName
     displayName: user.displayName
@@ -121,10 +147,14 @@ getSessionUser = (user) ->
     isStaff: user.isStaff
     avatarUrl: "/image/avatar.png"
     accountLevel: user.accountLevel
+    daysLeft: user.getPlanDaysLeft()
     recurlyAccount: user.recurlyAccount
     boxEndpoint: Box.endpoint plan.boxServer, ''
     boxServer: plan.boxServer
     acceptedTerms: user.acceptedTerms
+    created: user.created
+    datasetDisplay: user.datasetDisplay
+
   if user.email.length
     email = user.email[0].toLowerCase().trim()
     emailHash = crypto.createHash('md5').update(email).digest("hex")
@@ -133,31 +163,52 @@ getSessionUser = (user) ->
     session.logoUrl = user.logoUrl
   session
 
+updateLastSeen = (userObject) ->
+  userObject.lastSeen = Date.now()
+  userObject.save (err) ->
+    if err
+      console.warn "Error: updating last seen #{userObject?.shortName}: #{err}"
+
 # TODO: there should be a better way of doing this
 # Get a real + effective user objects from the database,
 # return them in a single object, to be injected into index.html
 getSessionUsersFromDB = (reqUser, cb) ->
   if not reqUser
     cb {}
-  else
-    User.findByShortName reqUser.effective.shortName, (err, effectiveUser) ->
-      if err then console.warn err
-      User.findByShortName reqUser.real.shortName, (err, realUser) ->
-        if err then console.warn err
-        cb
-          real: getSessionUser realUser
-          effective: getSessionUser effectiveUser
+    return
+
+  User.findByShortName reqUser.effective.shortName, (err, effectiveUser) ->
+    if err?
+      console.warn err
+    if not effectiveUser
+      console.warn "WARN: Couldn't find user .effective: #{reqUser.effective.shortName}"
+
+    User.findByShortName reqUser.real.shortName, (err, realUser) ->
+      if err?
+        console.warn err
+      if not realUser
+        console.warn "WARN: Couldn't find user .real: #{reqUser.real.shortName}"
+
+      # Async, don't care about waiting for this.
+      updateLastSeen realUser
+      if realUser?.shortName != effectiveUser?.shortName
+        updateLastSeen effectiveUser
+
+      cb
+        real: getSessionUser realUser
+        effective: getSessionUser effectiveUser
 
 getEffectiveUser = (user, callback) ->
+  # Find all users with user.shortName in their canBeReally list
   User.findCanBeReally user.shortName, (err, canBeReally) ->
-    if canBeReally.length == 0
-      return callback user
+    if err?
+      return callback err, null
+    if user.defaultContext in _.pluck(canBeReally, 'shortName')
+      # User has a defaultContext, and it is one of the contexts they can switch to.
+      effectiveUser = _.findWhere canBeReally, shortName: user.defaultContext
     else
-      if user.defaultContext in _.pluck(canBeReally, 'shortName')
-        effectiveUser = _.findWhere canBeReally, shortName: user.defaultContext
-      else
-        effectiveUser = canBeReally[0]
-      return callback effectiveUser
+      effectiveUser = user
+    return callback null, effectiveUser
 
 # Verify callback for LocalStrategy
 verify = (username, password, callback) ->
@@ -165,50 +216,66 @@ verify = (username, password, callback) ->
   user.checkPassword password, (err, user) ->
     if err
       return callback null, false, { message: err.error }
+
     if user
-      getEffectiveUser user, (effectiveUser) ->
+      # User logged in successfully!
+      # Now we need to work out which 'effective'
+      # profile they should be logged into...
+      getEffectiveUser user, (err, effectiveUser) ->
+        if err?
+          return callback null, false, { message: err }
+
         sessionUser =
           real: getSessionUser user
           effective: getSessionUser effectiveUser
         return callback null, sessionUser
 
-app.configure ->
-  app.use express.bodyParser()
-  app.use express.cookieParser( process.env.CU_SESSION_SECRET )
-  app.use express.session
-    cookie:
-      maxAge: 60000 * 60 * 24 * 365
-    secret: process.env.CU_SESSION_SECRET
-    store: new mongoStore({url: process.env.CU_DB, auto_reconnect: true})
+app.use connect.urlencoded()
+app.use connect.json()
+app.use cookieParser( process.env.CU_SESSION_SECRET )
+app.use session
+  cookie:
+    maxAge: 60000 * 60 * 24 * 30
+  secret: process.env.CU_SESSION_SECRET
+  store: new mongoStore({url: process.env.CU_DB, auto_reconnect: true})
 
-  app.use passport.initialize()
-  app.use passport.session()
+app.use passport.initialize()
+app.use passport.session()
 
-  app.use express.logger() if /staging|production/.test process.env.NODE_ENV
+# 'morgan' is logging middleware
+app.use morgan() if /staging|production/.test process.env.NODE_ENV
 
-  app.use flash()
-  app.use express.favicon(__dirname + '/../../shared/image/favicon.ico', { maxAge: 2592000000 })
+app.use flash()
+app.use serveFavicon(__dirname + '/../../shared/image/favicon.ico', { maxAge: 2592000000 })
 
-  # Trust X-Forwarded-* headers
-  app.enable 'trust proxy'
+# Trust X-Forwarded-* headers
+app.enable 'trust proxy'
 
+# Add Connect Assets
+# Grepability:
+# js =
+# "js" is defined in connect assets, and appears in our globals here.
+app.use assets({src: 'client'})
 
-  # Add Connect Assets
-  app.use assets({src: 'client'})
-  if not /staging|production/.test process.env.NODE_ENV
-    # Set the public folder as static assets
-    app.use express.static(process.cwd() + '/shared')
-  if process.env.NODETIME_KEY
-    app.use nodetimeLog
+# Set the public folder as static assets. In production this route
+# is served statically by nginx, so this has no effect. It's
+# used in dev, and not harmful in production.
+app.use express.static(process.cwd() + '/shared')
+
+if process.env.CU_REQUEST_LOG
+  app.use requestLog
 
 passport.use 'local', new LocalStrategy(verify)
-
 
 # Set View Engine
 app.set 'views', 'server/template'
 app.engine 'html', ejs.renderFile
 app.set 'view engine', 'html'
+
 js.root = 'code'
+
+js_app = js 'app'
+js_templates = js 'template/index'
 
 # Middleware (for checking users)
 checkThisIsMyDataHub = (req, resp, next) ->
@@ -216,12 +283,11 @@ checkThisIsMyDataHub = (req, resp, next) ->
   return next() if req.user.effective.shortName == req.params.user
 
   User.findByShortName req.params.user, (err, switchingTo) ->
+    if err?
+      return resp.send 500, error: "Unknown error #{err}"
+
     if switchingTo?.canBeReally and req.user.real.shortName in switchingTo.canBeReally
-      req.user.effective = getSessionUser switchingTo
-      req.session.save()
-      resp.writeHead 302,
-        location: req.url
-      resp.end()
+      next()
     else
       return resp.send 403, error: "Unauthorised"
 
@@ -232,12 +298,15 @@ checkStaff = (req, resp, next) ->
 
 # :todo: more flexible implementation that checks group membership and stuff
 checkSwitchUserRights = (req, res, next) ->
+  if not req.user
+    return res.send 401, error: "Not logged in"
   switchingTo = req.params.username
   console.log "SWITCH #{req.user.effective.shortName} -> #{switchingTo}"
   User.findByShortName switchingTo, (err, user) ->
     if err?
       # findByShortName encountered an unexpected error
       return res.send 500, err
+
     if not user?
       # findByShortName couldn't find the specified shortName
       return res.send 404, { error: "The specified user does not exist"}
@@ -253,20 +322,68 @@ checkSwitchUserRights = (req, res, next) ->
     # and the shortName is not in canBeReally, which means they can't switch.
     return res.send 403, { error: "#{req.user.real.shortName} cannot switch to #{switchingTo}"}
 
-# Render the main client side app
+# Render the HTML container into which Backbone
+# and the client-side Custard views are written
 renderClientApp = (req, resp) ->
   getSessionUsersFromDB req.user, (usersObj) ->
     resp.render 'index',
+      title: 'ScraperWiki'
       nav: ''
       subnav: ''
       content: ''
-      scripts: js 'app'
-      templates: js 'template/index'
+      scripts: js_app
+      templates: js_templates
       user: JSON.stringify usersObj
       recurlyDomain: process.env.RECURLY_DOMAIN
       flash: req.flash()
       environment: process.env.NODE_ENV
       loggedIn: 'real' of usersObj
+      intercomAppId: process.env.INTERCOM_APP_ID
+      intercomUserHash: getIntercomUserHash req.user?.real.shortName
+
+# Bypass Backbone by parsing and rendering the given
+# client-side page to HTML (useful for SEO on docs pages etc)
+renderServerAndClientSide = (options, req, resp) ->
+  fs.readFile "client/template/#{options.page}.eco", (err, contentTemplate) ->
+    if err?
+      console.warn "Template #{options.page} not found when rendering server side"
+      return resp.send 500, {error: "Template not found: #{err}"}
+
+    _.extend options, pageTitles.PageTitles[options.page]
+    options.subnav ?= 'subnav'
+    fs.readFile "client/template/#{options.subnav}.eco", (err, subnavTemplate) ->
+      if err?
+        console.warn "Template #{options.page} not found when rendering server side"
+        return resp.send 500, {error: "Template not found: #{err}"}
+
+      fs.readFile "client/template/nav.eco", (err, navTemplate) ->
+        if err?
+          console.warn "Template #{options.page} not found when rendering server side"
+          return resp.send 500, {error: "Template not found: #{err}"}
+
+        getSessionUsersFromDB req.user, (usersObj) ->
+          resp.render 'index',
+              title: options.title or 'ScraperWiki'
+              nav: eco.render navTemplate.toString()
+              subnav: """<div class="subnav-wrapper">#{eco.render subnavTemplate.toString(), options}</div>"""
+              content: """<div class="#{options.page}">#{eco.render contentTemplate.toString(), {} }</div>"""
+              scripts: js_app
+              templates: js_templates
+              user: JSON.stringify usersObj
+              recurlyDomain: process.env.RECURLY_DOMAIN
+              flash: req.flash()
+              environment: process.env.NODE_ENV
+              loggedIn: 'real' of usersObj
+              intercomAppId: process.env.INTERCOM_APP_ID
+              intercomUserHash: getIntercomUserHash req.user?.real.shortName
+
+# (internal) Get the HMAC hash for the specified user
+getIntercomUserHash = (shortName) ->
+  hash = null
+  if shortName and process.env.INTERCOM_SECRET_KEY
+    key = process.env.INTERCOM_SECRET_KEY
+    hash = crypto.createHmac('sha256', key).update(shortName).digest('hex')
+  return hash
 
 # (internal) Add a view to a dataset
 _addView = (user, dataset, attributes, callback) ->
@@ -274,10 +391,12 @@ _addView = (user, dataset, attributes, callback) ->
     if err?
       console.warn err
       return callback {statusCode: err.statusCode, error: "Error finding dataset: #{err.body}"}
+
     Box.create user, (err, box) ->
       if err?
         console.warn err
         return callback {statusCode: err.statusCode, error: "Error creating box: #{err.body}"}
+
       view =
         box: box.name
         boxServer: box.server
@@ -285,23 +404,26 @@ _addView = (user, dataset, attributes, callback) ->
         displayName: attributes.displayName
         boxJSON: box.boxJSON
         state: 'installing'
+
       dataset.views.push view
+
       dataset.save (err) ->
         if err?
           console.warn err
-          return callback {statusCode: 400, error: "Error saving view: #{err}"}, null
-        # Update ssh keys. :todo: Doing _all_ the boxes seems like overkill.
-        box.distributeSSHKeys (err) ->
-          if err?
-            console.warn "SSH key distribution error for #{box.name}"
-            err = null
+          return callback {statusCode: 500, error: "Error saving view: #{err}"}, null
+
         box.installTool {user: user, toolName: attributes.tool}, (err) ->
           if err?
             console.warn err
             return callback {500, error: "Error installing tool: #{err}"}
+
           view = _.findWhere dataset.views, box: box.name
           view.state = 'installed'
           dataset.save (err) ->
+            if err?
+              console.warn err
+              return callback {500, error: "Error installing tool: #{err}"}
+
             callback null, view
 
 switchUser = (req, resp) ->
@@ -314,7 +436,7 @@ switchUser = (req, resp) ->
   resp.end()
 
 login = (req, resp) ->
-  passport.authenticate("local",
+  passport.authenticate("local", # see the 'verify' function, above
     successRedirect: "/datasets"
     failureRedirect: "/login"
     failureFlash: true
@@ -322,25 +444,61 @@ login = (req, resp) ->
 
 getToken = (req, resp) ->
   Token.find req.params.token, (err, token) ->
+    if err?
+      return resp.send 500, { error: "Error #{err}" }
+
     if token?.shortName
       return resp.send 200, { token: token.token, shortName: token.shortName }
     else
       return resp.send 404, { error: 'Specified token could not be found' }
 
+sendPasswordReset = (req, resp) ->
+  # Decide if the query is an email address or a shortName
+  console.log "sendPasswordReset", req.body
+  query = req.body.query
+  if query and '@' in query
+    criteria =
+      email: query
+  else
+    criteria =
+      shortName: query
+  console.log "API criteria", criteria
+  User.sendPasswordReset criteria, (err) ->
+    if err == 'user not found'
+      return resp.send 404, error: 'That username could not be found'
+    if err?
+      return resp.send 500, error: "Something went wrong: #{err}"
+    return resp.send 200, success: "A password reset link has been emailed to #{query}"
+
 setPassword = (req, resp) ->
   Token.find req.params.token, (err, token) ->
+    if err?
+      console.warn "Token.find err -> #{err}"
+      return resp.send 500, error: 'Unknown error: #{err}'
+
     if token?.shortName and req.body.password?
       # TODO: token expiration
       User.findByShortName token.shortName, (err, user) ->
+        if err?
+          return resp.send 500, error: "Unknown error: #{err}"
+
         if user?
           user.setPassword req.body.password, ->
-            sessionUser =
-              real: getSessionUser user
-              effective: getSessionUser user
-            req.user = sessionUser
-            req.session.save()
-            req.login sessionUser, ->
-              return resp.send 200, user
+            # Password successfully set!
+            # Set up a new login session for the user
+            # (into the right context!)
+            getEffectiveUser user, (err, effectiveUser) ->
+              if err?
+                console.warn "Token.find err -> #{err}"
+                return resp.send 500, error: 'Unknown error: #{err}'
+
+              sessionUser =
+                real: getSessionUser user
+                effective: getSessionUser effectiveUser
+              req.user = sessionUser
+              req.session.save()
+              req.login sessionUser, ->
+                return resp.send 200, user
         else
           console.warn "no User with shortname #{token.shortname} for Token #{token.token}"
           return resp.send 500
@@ -362,33 +520,15 @@ addUser = (req, resp) ->
       accountLevel: req.body.accountLevel
       acceptedTerms: req.body.acceptedTerms
       emailMarketing: req.body.emailMarketing
+      defaultContext: req.body.defaultContext
     requestingUser: req.user?.real
   , (err, user) ->
     if err?
       if err.action is 'save' and /duplicate key/.test err.err
-        err =
-          code: "username-duplicate"
-          error: "Username is already taken"
-      if not err.error
-        err.error = err.err
-      console.warn err
-      return resp.json 500, err
-    else
-      return resp.json 201, user
+        return resp.json 400, error: "Username is already taken"
+      return resp.json 500, error: err
 
-dataRequest = (req, resp) ->
-  dataRequest = new DataRequest
-    name: req.body.name
-    phone: req.body.phone
-    email: req.body.email
-    description: req.body.description
-    ip: req.connection.remoteAddress
-  dataRequest.send (err) ->
-    if err?
-      console.warn "Error trying submit data request", err
-      return resp.send 500, error: "Error trying submit data request: #{JSON.stringify err}"
-    else
-      return resp.send 201, dataRequest
+    return resp.json 201, user
 
 postStatus = (req, resp) ->
   console.log "POST /api/status/ from ident #{req.ident}"
@@ -396,19 +536,38 @@ postStatus = (req, resp) ->
     if err?
       console.warn err
       return resp.send 500, error: 'Error trying to find dataset'
-    else if not dataset
+
+    if not dataset
       error = "Could not find a dataset with box: '#{req.ident}'"
       console.warn error
       return resp.send 404, error: error
-    else
-      dataset.updateStatus
-        type: req.body.type
-        message: req.body.message
-      , (err) ->
-        if err?
-          console.warn err
-          return resp.send 500, error: 'Error trying to update status'
-        return resp.send 200, status: 'ok'
+
+    dataset.updateStatus
+      type: req.body.type
+      message: req.body.message
+    , (err) ->
+      if err?
+        console.warn err
+        return resp.send 500, error: 'Error trying to update status'
+
+      return resp.send 200, status: 'ok'
+
+deleteStatus = (req, resp) ->
+  console.log "DELETE /api/status/ from ident #{req.ident}"
+  Dataset.findOneById req.ident, (err, dataset) ->
+    if err?
+      console.warn err
+      return resp.send 500, error: 'Error trying to find dataset'
+    if not dataset
+      error = "Could not find a dataset with box: '#{req.ident}'"
+      console.warn error
+      return resp.send 404, error: error
+
+    dataset.deleteStatus (err) ->
+      if err?
+        console.warn err
+        return resp.send 500, error: 'Error trying to delete status'
+      return resp.send 200, status: 'ok'
 
 # Render login page
 app.get '/login/?', (req, resp) ->
@@ -431,52 +590,37 @@ verifyRecurly = (req, resp) ->
       statusCode = err.statusCode or 500
       error = err.error or err
       return resp.send statusCode, error
+
     User.findByShortName req.params.user, (err, user) ->
       if err?
         statusCode = err.statusCode or 500
         error = err.error or err
         return resp.send statusCode, error
+
       plan = result.subscription.plan
       console.log 'Subscribed to', plan.plan_code
       user.setAccountLevel plan.plan_code, (err) ->
-        msg = "You've been subscribed to the #{plan.name} plan!"
+        if err?
+          resp.send 500, success: "Unknown error #{err}"
+          return
+
         if req.user?.effective
           req.user.effective = getSessionUser user
-        else
-          msg = "#{msg} Please check your email for an activation link."
-        req.flash 'info', msg
         req.session.save()
         resp.send 201, success: "Verified and upgraded"
 
-renderServerAndClientSide = (options, req, resp) ->
-  fs.readFile "client/template/#{options.page}.eco", (err, contentTemplate) ->
-    if err?
-      console.warn "Template #{options.page} not found when rendering server side"
-      return resp.send 500, {error: "Template not found: #{err}"}
-    _.extend options, pageTitles.SubNav[options.page]
-    options.subnav ?= 'subnav'
-    fs.readFile "client/template/#{options.subnav}.eco", (err, subnavTemplate) ->
-      fs.readFile "client/template/nav.eco", (err, navTemplate) ->
-        getSessionUsersFromDB req.user, (usersObj) ->
-          resp.render 'index',
-              nav: eco.render navTemplate.toString()
-              subnav: """<div class="subnav-wrapper">#{eco.render subnavTemplate.toString(), options}</div>"""
-              content: """<div class="#{options.page}">#{eco.render contentTemplate.toString(), {} }</div>"""
-              scripts: js 'app'
-              templates: js 'template/index'
-              user: JSON.stringify usersObj
-              recurlyDomain: process.env.RECURLY_DOMAIN
-              flash: req.flash()
-              environment: process.env.NODE_ENV
-              loggedIn: 'real' of usersObj
-
 # Allow set-password, signup, docs, etc, to be visited by anons
 # Note: these are NOT regular expressions!!
+app.get '/set-password/?', renderClientApp
 app.get '/set-password/:token/?', renderClientApp
 app.get '/subscribe/?*', renderClientApp
+app.get '/thankyou/?*', renderClientApp
 
 app.get '/pricing/?*', (req, resp) ->
   renderServerAndClientSide page: 'pricing', req, resp
+
+app.get '/signup/community', (req, resp) ->
+  resp.redirect '/signup/freetrial'
 
 app.get '/signup/?*', (req, resp) ->
   renderServerAndClientSide {page: "sign-up", subnav: 'signupnav'}, req, resp
@@ -508,14 +652,25 @@ app.post "/login", login
 app.get '/api/token/:token/?', getToken
 app.post '/api/token/:token/?', setPassword
 
+app.post '/api/user/reset-password/?', sendPasswordReset
 app.post '/api/user/?', addUser
-app.post '/api/data-request/?', dataRequest
 
 # :todo: Add IP address check (at the moment, anyone running an identd
 # can post to anyone's status).
 # throttleRoute = throttle.throttle (req) -> req.ident
 
+if process.env.CU_DB == "mongodb://localhost/cu-test"
+  console.warn "Skipping ident because local mongo database is being used"
+  localhostSkipIdent = (req, res, next) ->
+    if req.query.ident
+      req.ident = req.query.ident
+    return next()
+
+  checkIdent = localhostSkipIdent
+
 app.post '/api/status/?', checkIdent, postStatus
+app.delete '/api/status/?', checkIdent, deleteStatus
+
 
 app.get '/api/:user/subscription/:plan/sign/?', signPlan
 app.post '/api/:user/subscription/verify/?', verifyRecurly
@@ -527,73 +682,37 @@ logout = (req, resp) ->
   resp.redirect '/'
 
 listTools = (req, resp) ->
+  #console.log "listTools real:", req.user.real.shortName, "effective:", req.user.effective.shortName
   Tool.findForUser req.user.effective.shortName, (err, tools) ->
-    console.log "API about to return"
-    resp.send 200, tools
+    if err?
+      resp.send 500, 'Unknown error #{err}'
+      return
 
-postTool = (req, resp) ->
-  body = req.body
-  Tool.findOneByName body.name, (err, tool) ->
-    isNew = not tool?
-    if tool is null
-      publicBool = (body.public is "true")
-      tool = new Tool
-        name: body.name
-        user: req.user.effective.shortName
-        type: body.type
-        gitUrl: body.gitUrl
-        allowedUsers: body.allowedUsers
-        public: publicBool
-    else
-      _.extend tool, body
-    tool.gitCloneOrPull dir: process.env.CU_TOOLS_DIR, (err, stdout, stderr) ->
-      console.log err, stdout, stderr
-      if err?
-        console.warn err
-        return resp.send 500, error: "Error cloning/updating your tool's Git repo"
-      tool.loadManifest (err) ->
-        if err?
-          console.warn err
-          tool.deleteRepo ->
-            return resp.send 500, error: "Error trying to load your tool's manifest"
-        else
-          tool.save (err) ->
-            console.warn err if err?
-            Tool.findOneById tool._id, (err, tool) ->
-              console.warn err if err?
-              if err?
-                console.warn err
-                return resp.send 500, error: 'Error trying to find tool'
-              else
-                code = if isNew then 201 else 200
-                if isNew
-                  code = 201
-                  action = 'create'
-                else
-                  code = 200
-                  action = 'update'
-                na.trackEvent 'tools', action, body.name
-                return resp.send code, tool
+    resp.send 200, tools
 
 updateUser = (req, resp) ->
   User.findByShortName req.user.real.shortName, (err, user) ->
+    if err?
+      resp.send 500, error: err
+      return
+
     console.log "updateUser body is", req.body
     # The attributes that we can set via this API.
-    canSet = ['acceptedTerms', 'canBeReally']
+    canSet = ['acceptedTerms', 'canBeReally', 'datasetDisplay']
     _.extend user, _.pick req.body, canSet
     user.save (err, newUser) ->
       if err?
         resp.send 500, error: err
-      else
-        resp.send 200, newUser
+
+      resp.send 200, newUser
 
 listDatasets = (req, resp) ->
-  Dataset.findAllByUserShortName req.user.effective.shortName, (err, datasets) ->
+  Dataset.findAllByUserShortName req.params.user, (err, datasets) ->
     if err?
       console.warn err
       return resp.send 500, error: 'Error trying to find datasets'
-    else
-      return resp.send 200, datasets
+
+    return resp.send 200, datasets
 
 getDataset = (req, resp) ->
   console.log "GET /api/#{req.params.user}/datasets/#{req.params.id}"
@@ -601,11 +720,11 @@ getDataset = (req, resp) ->
     if err?
       console.warn err
       return resp.send 500, error: 'Error trying to find datasets'
-    else if not dataset
+    if not dataset
       console.warn "Could not find a dataset with {box: '#{req.params.id}', user: '#{req.user.effective.shortName}'}"
       return resp.send 404, error: "We can't find this dataset, or you don't have permission to access it."
-    else
-      return resp.send 200, dataset
+
+    return resp.send 200, dataset
 
 listViews = (req, resp) ->
   console.log "GET /api/#{req.params.user}/datasets/#{req.params.id}/views"
@@ -613,13 +732,13 @@ listViews = (req, resp) ->
     if err?
       console.warn err
       return resp.send 500, error: 'Error trying to find dataset views'
-    else if not dataset
+    if not dataset
       console.warn "Could not find a dataset with {box: '#{req.params.id}', user: '#{req.user.effective.shortName}'}"
       return resp.send 404
-    else
-      dataset.views (err, views) ->
-        console.warn "Error fetching views #{err}" if err?
-        return resp.send 200, views
+
+    dataset.views (err, views) ->
+      console.warn "Error fetching views #{err}" if err?
+      return resp.send 200, views
 
 updateDataset = (req, resp) ->
   console.log "PUT /api/#{req.params.user}/datasets/#{req.params.id}"
@@ -634,6 +753,8 @@ updateDataset = (req, resp) ->
       # :todo: should be more systematic about what can be set this way.
       for k of req.body
         dataset[k] = req.body[k]
+
+      console.log "updateDataset: saving", dataset
       dataset.save()
       return resp.send 200, dataset
 
@@ -641,21 +762,25 @@ addDataset = (req, resp) ->
   user = req.user.effective
   body = req.body
   console.log "POST dataset user", user
+
   User.canCreateDataset user, (err, can) ->
+
     if err?
       console.log "USER #{user} CANNOT CREATE DATASET"
       return resp.send err.statusCode, err.error
     Box.create user, (err, box) ->
       if err?
-        console.warn err
-        return resp.send err.statusCode, error: "Error creating box: #{err.body}"
+        console.warn "Box.create failed #{err}"
+        return resp.send 500, error: "Error creating box: #{err.body}"
       console.log "POST dataset boxName=#{box.name}"
       console.log "POST dataset boxServer = #{box.server}"
+
       # TODO: a box will still be created here
       box.installTool {user: user, toolName: body.tool}, (err) ->
         if err?
           console.warn err
           return resp.send 500, error: "Error installing tool: #{err}"
+
         # Save dataset
         dataset = new Dataset
           box: box.name
@@ -671,16 +796,17 @@ addDataset = (req, resp) ->
         dataset.save (err) ->
           if err?
             console.warn err
-            return resp.send 400, error: "Error saving dataset: #{err}"
-          # Update ssh keys. :todo: Doing _all_ the boxes seems like overkill.
-          box.distributeSSHKeys (err) ->
-            if err?
-              console.warn "SSH key distribution error"
-              err = null
+            return resp.send 500, error: "Error saving dataset: #{err}"
+
           console.log "TOOL dataset.tool #{dataset.tool} body.tool #{body.tool}"
+
           Dataset.findOneById dataset.box, req.user.effective.shortName, (err, dataset) ->
-            console.warn err if err?
+            if err?
+              console.warn err
+              return resp.send 500, error: "Error saving dataset: #{err}"
+
             resp.send 200, dataset
+
             _addView user, dataset,
               tool: 'datatables-view-tool'
               displayName: 'View in a table' # TODO: use tool object
@@ -692,6 +818,12 @@ addDataset = (req, resp) ->
 addView = (req, resp) ->
   user = req.user.effective
   Dataset.findOneById req.params.dataset, (err, dataset) ->
+    if err?
+      resp.send 500, error: "Error creating view: #{err}"
+      return
+    if not dataset
+      return resp.send 404, error: "Error creating view: #{req.params.dataset} not found"
+
     body = req.body
     _addView user, dataset,
       tool: body.tool
@@ -705,7 +837,7 @@ addView = (req, resp) ->
 listUsers = (req, resp) ->
   User.findCanBeReally req.user.real.shortName, (err, users) ->
     if err?
-      console.log err
+      console.log "User.findCanBeReally", err
       return resp.send 500, error: 'Error trying to find users'
     else
       result = for u in users when u.shortName
@@ -714,45 +846,50 @@ listUsers = (req, resp) ->
 
 addSSHKey = (req, resp) ->
   User.findByShortName req.user.effective.shortName, (err, user) ->
+    if err?
+      resp.send 500, error: err
+      return
+
     if not req.body.key?
       return resp.send 400, error: 'Specify key'
     user.sshKeys.push req.body.key.trim()
-    console.log "**** sshKeys are", user.sshKeys
     user.save (err) ->
-      User.distributeUserKeys user.shortName, (err) ->
-        if err?
-          console.warn "SSHKEY ERROR: #{err}"
-          resp.send 500, error: err
-        else
-          resp.send 200, success: 'ok'
+      if err?
+        resp.send 500, error: err
+        return
+
+      resp.send 200, success: 'ok'
 
 listSSHKeys = (req, resp) ->
   User.findByShortName req.user.effective.shortName, (err, user) ->
-    resp.send 200, user.sshKeys
+    if err?
+      resp.send 500, error: err
+      return
 
-googleAnalytics = (req, resp, next) ->
-  na.trackPage "#{req.method} #{req.url}", req.url, ->
-    return true
-  next()
+    resp.send 200, user.sshKeys
 
 changePlan = (req, resp) ->
   [err, dummy] = Plan.getPlan req.params.plan
   if err
     return resp.send 500, error: "That plan does not exist!"
+
   User.findByShortName req.user.real.shortName, (err, user) ->
     if err?
       console.warn "error searching for user model!", err
       return resp.send 500, error: "Couldn't find your user object"
     if not user
       return resp.send 500, error: "No users with the specified shortName"
+
     user.getCurrentSubscription (err, currentSubscription) ->
       if err?
         return resp.send 404, error: "Couldn't find your subscription"
       if not currentSubscription
         return resp.send 404, error: "You do not have a recurly subscription. Please get one at https://scraperwiki.com/pricing"
+
       currentSubscription.upgrade req.params.plan, (err, recurlyResp) ->
         if err?
           return resp.send 500, error: "Couldn't change your subscription"
+
         user.accountLevel = req.params.plan
         user.save (err, user) ->
           if err?
@@ -760,34 +897,176 @@ changePlan = (req, resp) ->
             return resp.send 500, error: "Subscription changed, but user model could not be saved"
           return resp.send 200, user
 
-app.all '*', ensureAuthenticated
+redirectToRecurlyAdmin = (req, resp) ->
+  User.findByShortName req.user.real.shortName, (err, user) ->
+    if err?
+      return resp.send 500, error: "Couldn't find your user object"
 
-app.get '/logout', logout
+    if not user
+      return resp.send 500, error: "No users with the specified shortName"
+
+    user.getSubscriptionAdminURL (err, recurlyAdminUrl) ->
+      if err?
+        return resp.send 404, error: err.error
+
+      if not recurlyAdminUrl
+        return resp.send 404, error: "You do not have a recurly hosted_login_token. Contact hello@scraperwiki.com for help."
+      resp.writeHead 302,
+        location: recurlyAdminUrl
+      resp.end()
+
+# Make a callable to respond to `resp` when intercom replies to us.
+intercomResponseHandler = (resp, reason) ->
+  (err, intercomResp, body) ->
+    if err or intercomResp.statusCode not in [200, 201]
+      resp.send 500, error: 'Intercom communication error: ' + reason + " " + intercomResp.statusCode + " " + intercomResp.body
+    else
+      resp.send 200, success: 'OK'
+
+buildIntercomRequestBody = (endpoint, messageObject) ->
+  url: 'https://api.intercom.io/v1/' + endpoint
+  headers:
+    'Content-Type': 'application/json'
+  auth:
+    user: process.env.INTERCOM_APP_ID
+    pass: process.env.INTERCOM_API_KEY
+  body: JSON.stringify messageObject
+
+sendIntercomMessage = (req, resp) ->
+  messageObject =
+    user_id: req.user.real.shortName
+    url: req.body.url
+    body: req.body.message
+
+  body = buildIntercomRequestBody 'users/message_threads', messageObject
+  request.post body, intercomResponseHandler(resp, 'sendIntercomMessage')
+
+# recursively convert any numeric strings to numbers
+numberify = (obj) ->
+  if typeof obj == 'object'
+    obj[key] = numberify val for key, val of obj
+  else if not isNaN parseFloat obj
+    obj = parseFloat obj
+  return obj
+
+sendIntercomUserData = (req, resp) ->
+  messageObject = numberify req.body
+  messageObject.user_id = req.user.real.shortName
+
+  body = buildIntercomRequestBody 'users', messageObject
+  request.put body, intercomResponseHandler(resp, 'sendIntercomUserData')
+
+sendIntercomTag = (req, resp) ->
+  messageObject =
+    user_ids: [req.user.real.shortName]
+    name: req.body.name
+    tag_or_untag: "tag"
+
+  body = buildIntercomRequestBody 'tags', messageObject
+  request.post body, intercomResponseHandler(resp, 'sendIntercomTag')
+
+# This does automatic switching if you try to
+# access a dataset not in your current data hub
+switchContextIfRequiredAndAllowed = (req, resp, next) ->
+  datasetID = req.params[0]
+  Dataset.findOneById datasetID, (err, dataset) ->
+    if err?
+      resp.status 500
+      return
+
+    if dataset
+      if dataset.user == req.user.effective.shortName
+        return next()
+      else
+        User.findByShortName dataset.user, (err, switchingTo) ->
+          if err?
+            resp.status 500
+            return
+
+          if switchingTo
+            if switchingTo?.canBeReally and req.user.real.shortName in switchingTo.canBeReally
+              req.user.effective = getSessionUser switchingTo
+              req.session.save()
+              return next()
+            else if req.user.real.isStaff
+              req.user.effective = getSessionUser switchingTo
+              req.session.save()
+              return next()
+            else
+              resp.status 404
+              return resp.render 'not_found'
+          else
+            resp.status 404
+            return resp.render 'not_found'
+    else
+      resp.status 404
+      return resp.render 'not_found'
+
+
+api = express.Router()
+api.use ensureAuthenticated
+app.use "/api", api
+
 
 # API!
-app.get '/api/tools/?', listTools
-app.post '/api/tools/?', googleAnalytics, postTool
+api.get '/tools/?', listTools
 
-app.put '/api/user/?', updateUser
+api.put '/user/?', updateUser
 
-app.get '/api/:user/datasets/?', checkThisIsMyDataHub, listDatasets
-# :todo: should :user be part of the dataset URL?
-app.get '/api/:user/datasets/:id/?', checkThisIsMyDataHub, getDataset
-app.get '/api/:user/datasets/:id/views/?', checkThisIsMyDataHub, listViews
-app.put '/api/:user/datasets/:id/?', checkThisIsMyDataHub, updateDataset
-app.post '/api/:user/datasets/?', checkThisIsMyDataHub, addDataset
-app.post '/api/:user/datasets/:dataset/views/?', checkThisIsMyDataHub, addView
+api.get '/:user/datasets/?', checkThisIsMyDataHub, listDatasets
+api.get '/:user/datasets/:id/?', checkThisIsMyDataHub, getDataset
+api.get '/:user/datasets/:id/views/?', checkThisIsMyDataHub, listViews
+api.put '/:user/datasets/:id/?', checkThisIsMyDataHub, updateDataset
+api.post '/:user/datasets/?', checkThisIsMyDataHub, addDataset
+api.post '/:user/datasets/:dataset/views/?', checkThisIsMyDataHub, addView
 
-app.get '/api/user/?', listUsers
+api.get '/user/?', listUsers
 
-app.post '/api/:user/sshkeys/?', addSSHKey
-app.get '/api/:user/sshkeys/?', listSSHKeys
+api.post '/:user/sshkeys/?', addSSHKey
+api.get '/:user/sshkeys/?', listSSHKeys
 
-app.put '/api/:user/subscription/change/:plan/?', changePlan
+api.put '/:user/subscription/change/:plan/?', changePlan
+api.get '/:user/subscription/billing', redirectToRecurlyAdmin
 
-# Catch all other routes, send to client app
-# eg: /datasets, /dataset/abc1234, /signup/free
-app.get '*', renderClientApp
+api.post '/reporting/message/?', sendIntercomMessage
+api.post '/reporting/user/?', sendIntercomUserData
+api.post '/reporting/tag/?', sendIntercomTag
+
+app.get '/logout', ensureAuthenticated, logout
+
+app.get '/version', (req, res) ->
+  res.set 'Content-Type', 'text/plain'
+  child_process.exec "git log -n1 2>&1", (err, stdout, _stderr) =>
+    if err
+      return res.send 500, stdout
+    res.send 200, stdout
+
+# Magic redirects
+app.get /^[/]dataset[/]([a-zA-Z0-9]+)/, ensureAuthenticated, switchContextIfRequiredAndAllowed, renderClientApp
+
+# Define the URLs which get rendered client side
+{ScraperwikiViews} = require '../../shared/code/views'
+for view in ScraperwikiViews
+  if view.name == "fourOhFour"
+    # Don't route fourOhFour
+    continue
+  app.get RegExp("^/" + view.route), ensureAuthenticated, renderClientApp
+
+# $ curl http://localhost:3000/notfound
+# $ curl http://localhost:3000/notfound -H "Accept: application/json"
+# $ curl http://localhost:3000/notfound -H "Accept: text/plain"
+app.use (req, res, next) ->
+  res.status 404
+
+  if req.accepts('html')
+    res.render 'not_found', url: req.url
+    return
+
+  if req.accepts('json')
+    res.send error: 'Not found'
+    return
+
+  res.type('txt').send 'Not found'
 
 port = process.env.CU_PORT or 3001
 
@@ -816,7 +1095,8 @@ process.on 'SIGTERM', ->
 if /staging|production/.test process.env.NODE_ENV
   process.on 'uncaughtException', (err) ->
     console.warn err
-    Exceptional.handle err
     setTimeout ->
       process.kill process.pid, 'SIGTERM'
     , 500
+
+exports.app = app

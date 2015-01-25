@@ -74,6 +74,57 @@ class Cu.View.ToolContent extends Backbone.View
                 success: ->
                   delete dataset.new
                   window.app.navigate "/dataset/#{dataset.id}/settings", {trigger: true}
+        getUserDetails: (cb) ->
+          cb
+            real:
+              shortName: window.user.real.shortName
+              displayName: window.user.real.displayName
+              email: window.user.real.email[0]
+              accountLevel: window.user.real.accountLevel
+            effective:
+              shortName: window.user.effective.shortName
+              displayName: window.user.effective.displayName
+              email: window.user.effective.email[0]
+              accountLevel: window.user.effective.accountLevel
+        reportingMessage: (message, success, error) ->
+          $.ajax
+            type: 'POST'
+            url: '/api/reporting/message/'
+            data:
+              url: window.location.href
+              message: message
+            success: ->
+              if typeof success is 'function'
+                success()
+            error: ->
+              if typeof error is 'function'
+                error()
+          undefined # required to stop easyXDM calling the success callback
+        reportingUser: (payload, success, error) ->
+          $.ajax
+            type: 'POST'
+            url: '/api/reporting/user/'
+            data: payload
+            success: ->
+              if typeof success is 'function'
+                success()
+            error: ->
+              if typeof error is 'function'
+                error()
+          undefined # required to stop easyXDM calling the success callback
+        reportingTag: (tagname, success, error) ->
+          $.ajax
+            type: 'POST'
+            url: '/api/reporting/tag/'
+            data:
+              name: tagname
+            success: ->
+              if typeof success is 'function'
+                success()
+            error: ->
+              if typeof error is 'function'
+                error()
+          undefined # required to stop easyXDM calling the success callback
 
 
 class Cu.View.AppContent extends Cu.View.ToolContent

@@ -4,7 +4,19 @@
 OLD_PATH=$PATH
 OLD_PS1=$PS1
 OLD_NODE_PATH=$NODE_PATH
-PATH=$(pwd)/node_modules/.bin:$(pwd)/bin:$PATH
+PATH=$(pwd)/bin:$(pwd)/node_modules/.bin:$PATH
+
+# The default values for these environment variables below are:
+#   a) not secret; and,
+#   b) supposed to work with local demons (mongo and redis)
+export CU_DB=mongodb://localhost:27017/cu-test
+export CU_BOX_SERVER=scraperwiki.example.com
+export CU_SESSION_SECRET=foo
+export CU_TOOLS_DIR=/var/tmp/tools
+export CU_SENDGRID_USER=foo@example.com
+export CU_SENDGRID_PASS=foo@example.com
+export CU_MAILCHIMP_API_KEY=foo
+export CU_MAILCHIMP_LIST_ID=foo
 
 # Fiddling with NODE_PATH appears not to be necessary.  (node
 # picks up modules from ./node_modules, but maybe that's only
@@ -48,71 +60,14 @@ deactivate () {
     unset -f mocha
 }
 
-mocha () {
-    # Clean DB out and load fixtures
-    test -f test/cleaner.coffee && coffee test/cleaner.coffee
-
-    # Consider pushing to external program.
-    eval last=\${$#}
-
-    if [ "$#" = "0" ]
-    then
-        env mocha ${@:1:$#-1} $(find test -name '*.coffee' | sort)
-    else
-        if [ -d "$last" ]
-        then
-            env mocha ${@:1:$#-1} $(find "$last" -name '*.coffee' | sort)
-        else
-            env mocha $@
-        fi
-    fi
-}
-
-fix_connect_file_cache () {
-  if ! [ -d node_modules/connect-assets ]
-  then
-    echo "connect-assets not found, please run npm install" 1>&2
-    return 4
-  fi
-  # node's module connect-file-cache has a bug, so we have to patch it.
-  # Unfortunately it's a dependency of a dependency, so we need to do
-  # this slightly elaborate "npm link" thing to change the installed
-  # module.
-  # See also our pull request:
-  # https://github.com/TrevorBurnham/connect-file-cache/pull/9
-  if [ -L node_modules/connect-assets/node_modules/connect-file-cache ]
-  then
-    return 0
-  fi
-  (
-  cd ..
-  git clone git://github.com/scraperwiki/connect-file-cache.git
-  cd connect-file-cache
-  npm link
-  )
-  (
-  cd node_modules/connect-assets
-  npm link connect-file-cache
-  )
-}
-
-turn_off_uglify_mangling() {
-  sed  -i '/^    ast = pro.ast_mangle(ast);/s/^/\/\//' node_modules/connect-assets/node_modules/snockets/lib/snockets.js
-}
-
-s=../swops-secret/keys.sh
-test -e "$s" && . "$s" && echo yummm, keys.sh
-
-if [ "$NODE_ENV" = "production" ]
-then
-  turn_off_uglify_mangling
-fi
-
-if [ "${NODE_ENV:-test}" = "test" ]
-then
-  fix_connect_file_cache
-fi
+# Source script containing useful, but secret, environment variables.
+. ../swops/archive/swops-secret/keys.sh
 
 export ACK_OPTIONS="--type-add coffee=.coffee${ACK_OPTIONS+ $ACK_OPTIONS}"
 alias ack=ack-grep
+
+[[ -s ${HOME}/.nvm/nvm.sh ]] && . ${HOME}/.nvm/nvm.sh # This loads NVM
+# Both mac-users and linux-users love nvm
+nvm use 0.10
+
 true

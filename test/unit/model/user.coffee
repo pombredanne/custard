@@ -1,3 +1,5 @@
+require '../setup_teardown'
+
 mongoose = require 'mongoose'
 sinon = require 'sinon'
 should = require 'should'
@@ -9,6 +11,8 @@ mailchimp = require 'mailchimp'
 {User} = require 'model/user'
 {Box} = require 'model/box'
 {Plan} = require 'model/plan'
+
+email = require 'lib/email'
 
 describe 'User (client)', ->
   helper = require '../helper'
@@ -104,7 +108,56 @@ describe 'User (server)', ->
         @err.should.include {statusCode: 403}
         @err.should.include {error: "User has no password"}
 
-    context "when trying to set a password", ->
+    context "when requesting a password reset email (with correct shortName)", ->
+      before (done) ->
+        @emailStub = sinon.stub email, 'passwordResetEmail'
+        @emailStub.callsArg 1
+
+        User.sendPasswordReset { shortName: 'ickletest' }, (err) =>
+          @err = err
+          done()
+
+      it 'email.passwordResetEmail is called with a user object and a token string', ->
+        arg = @emailStub.lastCall.args[0]
+        arg.should.have.length 1
+        arg[0].should.have.properties
+          shortName: 'ickletest'
+          displayName: 'Ickle Test'
+          token: '339231725782156'
+
+      it 'no errors are returned', ->
+        should.not.exist @err
+
+      it 'it emails the user', ->
+        @emailStub.callCount.should.equal 1
+
+    context "when requesting a password reset email (with incorrect shortName)", ->
+      before (done) ->
+        User.sendPasswordReset { shortName: 'i-do-not-exist' }, (err) =>
+          @err = err
+          done()
+
+      it 'an error is returned', ->
+        should.exist @err
+        @err.should.equal 'user not found'
+
+      it 'it does not email the user', ->
+        # callCount should still be 1 (no second email has been sent)
+        @emailStub.callCount.should.equal 1
+
+    context "when requesting a password reset email (with an email address shared by two profiles)", ->
+      before (done) ->
+        User.sendPasswordReset { email: 'ickletest@example.org' }, (err) =>
+          @err = err
+          done()
+
+      it 'no errors are returned', ->
+        should.not.exist @err
+
+      it 'it emails the user', ->
+        @emailStub.callCount.should.equal 2
+
+    context "when trying to save a new password", ->
       before (done) ->
         @newPassword = String(Math.random()*Math.pow(2,32))
         User.findByShortName 'ickletest', (err, user) =>
@@ -118,48 +171,25 @@ describe 'User (server)', ->
             done()
 
   describe 'Finding', ->
-    it 'can find one by its shortname', (done) ->
-      # TODO: Stub actual DB calls?
+    it 'I can find one user by its shortname', (done) ->
       User.findByShortName 'ickletest', (err, user) ->
         should.exist user
         user.displayName.should.equal 'Ickle Test'
         done()
 
-    it "returns null when the user doesn't exist", (done) ->
+    it 'I can find multiple users by their shared email address', (done) ->
+      User.findByEmail 'ickletest@example.org', (err, users) ->
+        should.exist users
+        users.should.have.a.length 2
+        users[0].should.have.a.property 'shortName'
+        users[1].should.have.a.property 'shortName'
+        done()
+
+    it "it returns null when the user doesn't exist", (done) ->
       User.findByShortName 'NONEXIST', (err, user) ->
         should.not.exist err
         should.not.exist user
         done()
-
-  describe 'SSH keys', ->
-    before ->
-      @pigBox = new Box
-        users: ['ickletest']
-        name: 'pigbox'
-      @luxuryPigBox = new Box
-        users: ['zarino', 'ickletest']
-        name: 'luxurypigbox'
-      @request = sinon.stub request, 'post', (opt, cb) ->
-        cb null, null, null
-
-    before (done) ->
-      @pigBox.save (err) =>
-        @luxuryPigBox.save (err) ->
-          done null
-
-    after ->
-      request.post.restore()
-
-    context 'when distributing the keys of ickletest', ->
-      before (done) ->
-        User.distributeUserKeys 'ickletest', done
-
-      it "posts to pigbox with ickletest's ssh keys", ->
-        correctArgs = @request.calledWithMatch
-          uri: "http://#{process.env.CU_BOX_SERVER}/pigbox/sshkeys"
-          form:
-            keys: '["a","b","c"]'
-        correctArgs.should.be.true
 
   describe 'Validation', ->
     beforeEach ->
@@ -222,6 +252,10 @@ describe 'User (server)', ->
         @apiStub = listSubscribe: sinon.stub()
         @mailChimpStub = sinon.stub mailchimp, 'MailChimpAPI', =>
           return @apiStub
+
+        @emailStub = sinon.stub email, 'signUpEmail'
+        @emailStub.callsArg 2
+
         User.add
           newUser:
             shortName: 'testerson'
@@ -234,24 +268,59 @@ describe 'User (server)', ->
           done err
 
       after ->
-        mailchimp.MailChimpAPI.restore()
+        @mailChimpStub.restore()
 
-      it 'has a recurlyAccount', ->
+      it 'the new user has a recurlyAccount', ->
         should.exist @user.recurlyAccount
 
-      it 'has agreed to a version of the terms and conditions', ->
+      it 'the new user has agreed to a version of the terms and conditions', ->
         should.exist @user.acceptedTerms
         @user.acceptedTerms.should.be.above 0
 
-      it 'has not contacted the MailChimp API', ->
+      it 'the new user does not have a defaultContext', ->
+        should.not.exist @user.defaultContext
+
+      it 'it has not contacted the MailChimp API', ->
         @apiStub.listSubscribe.calledOnce.should.be.false
 
       # TODO: stub database
       xit 'saves the user to the database'
 
-      # TODO: stub nodemailer
-      xit 'emails the user', ->
+      it 'emails the user', ->
         @emailStub.calledOnce.should.be.true
+
+      it 'the new user is on "free-trial" plan', ->
+        @user.accountLevel.should.equal "free-trial"
+
+      it "the new user's plan expires in 30 days", ->
+        @user.getPlanDaysLeft().should.equal 30
+
+      context '...waiting a day brings expiration nearer', ->
+        before ->
+          # Do not use the default argument to .useFakeTimers(): it doesn't work.
+          @clock = sinon.useFakeTimers(+(new Date()))
+          # 100e6 milliseconds is a bit more than 1 day.
+          @clock.tick(100e6)
+
+        it "the new user's plan expires in 29 days", ->
+          @user.getPlanDaysLeft().should.equal 29
+
+        after ->
+          @clock.restore()
+
+      context '...waiting a month expires the plan', ->
+        before ->
+          # See above notes about bug in useFakeTimers().
+          @clock = sinon.useFakeTimers(+new Date())
+          # 100e6 milliseconds is a bit more than 1 day.
+          @clock.tick(30 * 100e6)
+
+        it "the new user's plan has expired", ->
+          @user.getPlanDaysLeft().should.equal 0
+
+        after ->
+          @clock.restore()
+
 
     context 'when add is called (with newsletter opt-in)', ->
       before (done) ->
@@ -270,9 +339,9 @@ describe 'User (server)', ->
           done err
 
       after ->
-        mailchimp.MailChimpAPI.restore()
+        @mailChimpStub.restore()
 
-      it 'has added them to our MailChimp list', ->
+      it 'it has added them to our MailChimp list', ->
         @apiStub.listSubscribe.calledOnce.should.be.true
         @apiStub.listSubscribe.calledWithMatch({ email_address: 'emailme@example.org' }).should.be.true
 
@@ -292,28 +361,45 @@ describe 'User (server)', ->
           done err
 
       after ->
-        mailchimp.MailChimpAPI.restore()
+        @mailChimpStub.restore()
 
-      it 'has not contacted the MailChimp API', ->
+      it 'it has not contacted the MailChimp API', ->
         @apiStub.listSubscribe.calledOnce.should.be.false
 
-
-  describe 'Disk quota', ->
-
-    context 'when updating the quotas for a user', ->
+    context 'when add is called (with a default context)', ->
       before (done) ->
-        @stub = sinon.stub Plan, 'setDiskQuota', (box, plan, cb) ->
-          cb null, true
-
-        User.findByShortName 'ehg', (err, user) =>
+        User.add
+          newUser:
+            shortName: 'testerson-loves-work'
+            displayName: 'Test Testerson Esq.'
+            email: ['test@example.org']
+            acceptedTerms: 1
+            emailMarketing: false
+            defaultContext: 'testersonltd'
+        , (err, user) =>
           @user = user
-          user.setDiskQuotasForPlan done
+          done err
 
-      after ->
-        Plan.setDiskQuota.restore()
+      it 'the new user has a defaultContext', ->
+        should.exist @user.defaultContext
+        @user.defaultContext.should.equal 'testersonltd'
 
-      it "should update the disk quota for each dataset", ->
-        correctArgs = @stub.calledWithMatch {name: '3006375731'}, 'grandfather-ec2'
-        correctArgs.should.be.true
-        correctArgs = @stub.calledWithMatch {name: '3006375815'}, 'grandfather-ec2'
-        correctArgs.should.be.true
+      it 'the new user has been added to the other context\'s canBeReally list', (done) ->
+        User.findByShortName 'testersonltd', (err, context) ->
+          context.canBeReally.should.include 'testerson-loves-work'
+          done()
+
+
+  describe 'Billing details', ->
+    before (done) ->
+      User.findByShortName 'mediummary', (err, user) =>
+        @user = user
+        done err
+
+    it 'We can find the user’s hosted recurly admin URL', (done) ->
+      @user.getSubscriptionAdminURL (err, url) ->
+        should.not.exist err
+        should.exist url
+        url.should.be.a.string
+        url.should.match new RegExp("^https://[^.]+[.]recurly[.]com/account/[a-z0-9]+$")
+        done()

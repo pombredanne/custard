@@ -19,6 +19,8 @@ sendGridEmail = (mailOptions, callback) ->
 
 
 exports.signUpEmail = (user, token, callback) ->
+  # `user` should be a user object
+  # `token` should be a string
   mailOptions =
     from: 'hello@scraperwiki.com'
     to: user.email[0]
@@ -36,43 +38,53 @@ exports.signUpEmail = (user, token, callback) ->
 
   sendGridEmail mailOptions, callback
 
-exports.dataRequestEmail = (dataRequest, callback) ->
-  mailOptions =
-    from: dataRequest.email
-    to: process.env.CU_REQUEST_EMAIL
-    subject: "Data Request [ID #{dataRequest.id}] from #{dataRequest.name}"
-    text: """
-    [ID #{dataRequest.id}] Call back request from #{dataRequest.name}
 
-    Name: #{dataRequest.name}
+exports.passwordResetEmail = (userList, callback) ->
+  # `userList` should be a list of user objects, with a .token property added.
+  if userList.length == 1
+    mailOptions =
+      from: 'hello@scraperwiki.com'
+      to: userList[0].email[0]
+      subject: "Reset your ScraperWiki password"
+      text: """
+      Hi #{userList[0].displayName},
 
-    Phone: #{dataRequest.phone}
+      Someone has requested a password reset for
+      your ScraperWiki account.
 
-    Email: #{dataRequest.email}
+      If this was you, please reset your password here:
+        https://scraperwiki.com/set-password/#{userList[0].token}
 
-    Description: #{dataRequest.description}
+      Thanks,
 
-    IP address: #{dataRequest.ip}
+      ScraperWiki
+      """
+  else
+    urlList = []
+    for user in userList
+      urlList.push("""
+                   Username: #{user.shortName}
 
-    """
+                   Reset link: https://scraperwiki.com/set-password/#{user.token}
+                   """)
+    urlList = urlList.join "\n\n"
+    mailOptions =
+      from: 'hello@scraperwiki.com'
+      to: userList[0].email[0]
+      subject: "Reset your ScraperWiki password"
+      text: """
+      Hi #{userList[0].displayName},
 
-  sendGridEmail mailOptions, callback
+      Someone has requested a password reset for
+      your ScraperWiki accounts.
 
-exports.dataRequestConfirmation = (dataRequest, callback) ->
-  mailOptions =
-    from: process.env.CU_REQUEST_EMAIL
-    to: dataRequest.email
-    subject: "Thank you for your ScraperWiki call-back request [ID #{dataRequest.id}]"
-    text: """
-    Dear #{dataRequest.name},
-    
-    Thank you for your ScraperWiki call-back request.
-    
-    Your ticket ID is ##{dataRequest.id}. A member of our Professional Services team will be in touch shortly.
-    
-    Regards,
-    
-    ScraperWiki
-    """
+      If this was you, please reset your password here:
+
+      #{urlList}
+
+      Thanks,
+
+      ScraperWiki
+      """
 
   sendGridEmail mailOptions, callback

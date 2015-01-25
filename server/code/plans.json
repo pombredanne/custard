@@ -3,10 +3,17 @@
         "boxServer": "ds-ec2.scraperwiki.com",
         "maxDiskSpaceMB": 4000,
         "maxHourCPUPerDay": 2.0,
-        "maxNumDatasets": 81,
+        "maxNumDatasets": 100,
         "$": true
     },
     "free": {
+        "boxServer": "free-ec2.scraperwiki.com",
+        "maxDiskSpaceMB": 8,
+        "maxHourCPUPerDay": 0.5,
+        "maxNumDatasets": 3,
+        "$": false
+    },
+    "free-trial": {
         "boxServer": "free-ec2.scraperwiki.com",
         "maxDiskSpaceMB": 8,
         "maxHourCPUPerDay": 0.5,
@@ -20,11 +27,18 @@
         "maxNumDatasets": 100,
         "$": false
     },
+    "xlarge-ec2": {
+        "boxServer": "premium.scraperwiki.com",
+        "maxDiskSpaceMB": 512,
+        "maxHourCPUPerDay": 0.5,
+        "maxNumDatasets": 999,
+        "$": true
+    },
     "large-ec2": {
         "boxServer": "premium.scraperwiki.com",
         "maxDiskSpaceMB": 256,
         "maxHourCPUPerDay": 0.5,
-        "maxNumDatasets": 81,
+        "maxNumDatasets": 100,
         "$": true
     },
     "medium-ec2": {
@@ -38,14 +52,22 @@
         "boxServer": "premium.scraperwiki.com",
         "maxDiskSpaceMB": 128,
         "maxHourCPUPerDay": 0.5,
-        "maxNumDatasets": 25,
+        "maxNumDatasets": 20,
         "$": false
     },
     "opendata": {
         "boxServer": "premium.scraperwiki.com",
         "maxDiskSpaceMB": 128,
         "maxHourCPUPerDay": 0.5,
-        "maxNumDatasets": 25,
+        "maxNumDatasets": 20,
         "$": false
+    },
+    "cobalt-a-dev": {
+        "comment": "This plan is here for development purposes",
+        "boxServer": "cobalt-p.scraperwiki.com",
+        "maxDiskSpaceMB": 4000,
+        "maxHourCPUPerDay": 2.0,
+        "maxNumDatasets": 100,
+        "$": true
     }
 }

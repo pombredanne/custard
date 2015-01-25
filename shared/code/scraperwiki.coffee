@@ -2,14 +2,19 @@
 scraperwiki.js 2
 Copyright (c) 2013 ScraperWiki Limited
 ScraperWiki tool client library. See
-https://beta.scraperwiki.com/help
+https://scraperwiki.com/help
 
 jQuery is required.
 ###
 
+window.console = window.console or
+  log: ->
+
 scraperwiki = sw =
   dataset: {}
   tool: {}
+  user: {}
+  reporting: {}
 
 
 scraperwiki.box = window.location.pathname.split('/')[1]
@@ -29,13 +34,15 @@ scraperwiki.readSettings = ->
   ###
   Returns dataset and tool settings from the current tool's URL hash
   ###
-  return null if window.location.hash is ''
-  hash = window.location.hash.substr(1)
   try
-    settings = JSON.parse decodeURIComponent(hash)
+    # Try the hash from the current window
+    return JSON.parse(decodeURIComponent(window.location.hash.substr(1)))
   catch e
-    return null
-  return settings
+    try
+      # Try the hash from the container, if it has one?
+      return JSON.parse(decodeURIComponent(parent.location.hash.substr(1)))
+    catch e
+  return null
 
 
 scraperwiki.url = (arg) ->
@@ -229,6 +236,64 @@ scraperwiki.shellEscape = (command) ->
   Useful for making variables "safe" for inclusion in exec commands.
   ###
   "'#{command.replace(/'/g,"'\"'\"'")}'"
+
+
+scraperwiki.user.profile = (success) ->
+  ###
+  Get the current user's shortName and displayName.
+  An object containing the details will be passed to
+  the optional [success] callback function. This function
+  also returns a jQuery deferred object on which you can
+  chain a .done() handler which is given the user details too.
+  ###
+  dfd = new jQuery.Deferred()
+  parent.scraperwiki.xdm.getUserDetails (userDetails) ->
+    if typeof(success) is 'function'
+      success userDetails
+    dfd.resolve userDetails
+  return dfd.promise()
+
+
+scraperwiki.reporting.message = (message, success, error) ->
+  ###
+  Send a message from the current user to Intercom, our reporting package
+  ###
+  dfd = new jQuery.Deferred()
+  if typeof success is 'function'
+    dfd.done(success)
+  if typeof error is 'function'
+    dfd.fail(error)
+
+  parent.scraperwiki.xdm.reportingMessage message, dfd.resolve, dfd.reject
+  return dfd.promise()
+
+
+scraperwiki.reporting.user = (payload, success, error) ->
+  ###
+  Communicate user payload data to the /user/ intercom endpoint
+  ###
+  dfd = new jQuery.Deferred()
+  if typeof success is 'function'
+    dfd.done(success)
+  if typeof error is 'function'
+    dfd.fail(error)
+
+  parent.scraperwiki.xdm.reportingUser payload, dfd.resolve, dfd.reject
+  return dfd.promise()
+
+
+scraperwiki.reporting.tag = (tagname, success, error) ->
+  ###
+  Tag the user with `tagname`
+  ###
+  dfd = new jQuery.Deferred()
+  if typeof success is 'function'
+    dfd.done(success)
+  if typeof error is 'function'
+    dfd.fail(error)
+
+  parent.scraperwiki.xdm.reportingTag tagname, dfd.resolve, dfd.reject
+  return dfd.promise()
 
 
 # HERE BE DEPRECATED FUNCTIONS:

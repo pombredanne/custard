@@ -55,15 +55,33 @@ class Dataset extends ModelBase
       @toBeDeleted = new Date(@toBeDeleted)
     super callback
 
+  deleteStatus: (callback) ->
+    delete @status
+    @save (err) =>
+      callback err
+
   updateStatus: (status, callback) ->
     @status =
       type: status.type
       message: status.message
       updated: new Date()
+
     @status.type = 'ok' unless status.type in ['ok', 'error']
+
     @save (err) =>
       boxes = _.map @views, (v) -> v.box
       message = JSON.stringify
+        origin:
+          box: @box
+          boxServer: @boxServer
+          user: @user
+          tool: @tool
+          displayName: @displayName
+          views: @views
+          boxJSON: @boxJSON
+          createdDate: @createdDate
+          creatorShortName: @creatorShortName
+          creatorDisplayName: @creatorDisplayName
         boxes: boxes
         type: @status.type
         message: @status.message
@@ -72,22 +90,6 @@ class Dataset extends ModelBase
       RedisClient.debouncedPublish @box, channel, message
       callback err
 
-  cleanCrontab: (callback) ->
-    {User} = require 'model/user'
-    User.findByShortName @user, (err, user) =>
-      _exec
-        user: user
-        boxName: @box
-        boxServer: @boxServer
-        cmd: "crontab -r"
-      , (err, res, body) =>
-        if err?
-          callback err
-        else if res.statusCode isnt 200
-          callback {statusCode: res.statusCode, body: body}
-        else
-          @toBeDeleted = null
-          @save callback
 
   @countVisibleDatasets: (user, callback) ->
     @dbClass.find({user: user, state: {$ne: 'deleted'}}).count callback
@@ -110,9 +112,6 @@ class Dataset extends ModelBase
 
   @findAllByTool: (toolName, callback) ->
     @dbClass.find {tool: toolName, state: {$ne: 'deleted'}}, callback
-
-  @findToBeDeleted: (callback) ->
-    @find {state: 'deleted', toBeDeleted: {$lte: new Date()}}, callback
 
 Dataset.View =
   findAllByTool: (toolName, callback) ->

@@ -1,6 +1,9 @@
 class Cu.View.Subscribe extends Backbone.View
   className: 'subscribe'
 
+  initialize: (options) ->
+    @options = options || {}
+
   render: ->
     @el.innerHTML = JST['subscribe'] @options
     $.getScript "/vendor/js/recurly.js", =>
@@ -16,7 +19,7 @@ class Cu.View.Subscribe extends Backbone.View
         planCode: @options.plan
         distinguishContactFromBillingInfo: true
         collectCompany: true
-        enableCoupons: false
+        enableCoupons: true
         enableAddOns: false
         acceptedCards: ['mastercard', 'visa']
         account:
@@ -38,7 +41,10 @@ class Cu.View.Subscribe extends Backbone.View
       data:
         recurly_token: token
       success: (result) =>
-        window.location = '/'
+        # Do a window refresh here, and not a backbone navigate
+        # because we want to get a fresh user session that has
+        # a fresh accountLevel field (obtained from the server).
+        window.location.href = '/thankyou'
       error: (err) =>
         alert err
 

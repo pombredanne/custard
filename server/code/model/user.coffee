@@ -1,4 +1,5 @@
 bcrypt = require 'bcrypt'
+moment = require 'moment'
 mongoose = require 'mongoose'
 async = require 'async'
 request = require 'request'
@@ -14,7 +15,7 @@ ModelBase = require 'model/base'
 {Plan} = require 'model/plan'
 {Subscription} = require 'model/subscription'
 
-{signUpEmail} = require 'lib/email'
+email = require 'lib/email'
 
 userSchema = new mongoose.Schema
   shortName: {type: String, unique: true}
@@ -24,8 +25,9 @@ userSchema = new mongoose.Schema
   apikey: {type: String, unique: true}
   isStaff: Boolean
   accountLevel: String
+  planExpires: Date
+  lastSeen: Date
   recurlyAccount: {type: String, unique: true}
-  trialStarted: {type: Date, default: Date.now}
   acceptedTerms: Number # a value of 0 or null means you need to accept terms on next login
   created: {type: Date, default: Date.now}
   logoUrl: String
@@ -33,8 +35,38 @@ userSchema = new mongoose.Schema
   # List of users that can switch into this profile.
   canBeReally: [String]
   defaultContext: String
+  datasetDisplay: String
 
 zDbUser = mongoose.model 'User', userSchema
+
+# Calls the specified recurly endpoint path (HTTP GET) and
+# turns the response into either an error or a javascript object,
+# both of which are passed to the specified callback.
+requestRecurlyAPI = (path, callback) ->
+  if not process.env.RECURLY_API_KEY or not process.env.RECURLY_DOMAIN
+    return callback { error: "RECURLY_API_KEY and RECURLY_DOMAIN need setting" }, null
+  request.get
+    uri: "https://#{process.env.RECURLY_API_KEY}:@#{process.env.RECURLY_DOMAIN}.recurly.com#{path}"
+    strictSSL: true
+    headers:
+      'Accept': 'application/xml'
+      'Content-Type': 'application/xml; charset=utf-8'
+  , (err, recurlyResp, body) =>
+    if err?
+      return callback err, null
+    else if recurlyResp.statusCode is 404
+      return callback { error: "You have no Recurly account. Sign up for a paid plan at http://scraperwiki.com/pricing" }, null
+    else if recurlyResp.statusCode isnt 200
+      return callback { statusCode: recurlyResp.statusCode, error: recurlyResp.body }, null
+
+    parser = new xml2js.Parser
+      ignoreAttrs: true
+      explicitArray: false
+    parser.parseString body, (err, obj) =>
+      if err?
+        console.warn err
+        return callback { error: "Can't parse Recurly XML" }, null
+      return callback null, obj
 
 class exports.User extends ModelBase
   @dbClass: zDbUser
@@ -68,62 +100,48 @@ class exports.User extends ModelBase
       @password = hash
       @save callback
 
-  setDiskQuotasForPlan: (callback) ->
-    # Find all their boxes
-    Box.findAllByUser @shortName, (err, boxes) =>
-      if err
-        return callback err, null
-      # set quota on each box. Parallel overwhelms gand.
-      async.eachSeries boxes, (box, next) =>
-        Plan.setDiskQuota box, @accountLevel, next
-      , ->
-        callback null, true
-
   setAccountLevel: (plan, callback) ->
     @accountLevel = plan
     @save callback
 
+  getPlanDaysLeft: ->
+      now = moment()
+      expires = moment(@planExpires)
+      daysLeft = Math.ceil(moment.duration(expires-now).asDays())
+      if daysLeft < 0
+        daysLeft = 0
+      return daysLeft
+
   getCurrentSubscription: (callback) ->
-    # find the subscription with that plan name
-    request.get
-      uri: "https://#{process.env.RECURLY_API_KEY}:@#{process.env.RECURLY_DOMAIN}.recurly.com/v2/accounts/#{@recurlyAccount}/subscriptions"
-      strictSSL: true
-      headers:
-        'Accept': 'application/xml'
-        'Content-Type': 'application/xml; charset=utf-8'
-    , (err, recurlyResp, body) =>
-      if err?
+    requestRecurlyAPI "/v2/accounts/#{@recurlyAccount}/subscriptions", (err, obj) =>
+      if err
         return callback err, null
-      else if recurlyResp.statusCode is 404
-        return callback { error: "You have no Recurly account. Sign up for a paid plan at http://scraperwiki.com/pricing" }, null
-      else if recurlyResp.statusCode isnt 200
-        return callback { statusCode: recurlyResp.statusCode, error: recurlyResp.body }, null
 
-      parser = new xml2js.Parser
-        ignoreAttrs: true
-        explicitArray: false
-      parser.parseString body, (err, obj) =>
-        if err?
-          console.warn err
-          return callback { error: "Can't parse Recurly XML" }, null
+      if not obj.subscriptions
+        return callback { error: "You do not have a paid subscription. Sign up at http://scraperwiki.com/pricing" }, null
 
-        if not obj.subscriptions
-          return callback { error: "You do not have a paid subscription. Sign up at http://scraperwiki.com/pricing" }, null
+      # xml2js converts multiple entities within entities as an array,
+      # but a single one is a single object. So we wrap into a list where necessary.
+      if not obj.subscriptions.subscription[0]
+        obj.subscriptions.subscription = [ obj.subscriptions.subscription ]
 
-        # xml2js converts multiple entities within entities as an array,
-        # but a single one is a single object. So we wrap into a list where necessary.
-        if not obj.subscriptions.subscription[0]
-          obj.subscriptions.subscription = [ obj.subscriptions.subscription ]
+      currentSubscription = _.find obj.subscriptions.subscription, (item) =>
+        return item.plan.plan_code is @accountLevel and item.state is 'active'
 
-        currentSubscription = _.find obj.subscriptions.subscription, (item) =>
-          console.log "recurly", item.plan.plan_code, "user", @accountLevel, item.state
-          return item.plan.plan_code is @accountLevel and item.state is 'active'
+      if not currentSubscription
+        return callback null, null
 
-        if not currentSubscription
-          console.log 'kitten'
-          return callback null, null
+      return callback null, new Subscription currentSubscription
 
-        return callback null, new Subscription currentSubscription
+  getSubscriptionAdminURL: (callback) ->
+    requestRecurlyAPI "/v2/accounts/#{@recurlyAccount}", (err, obj) ->
+      if err
+        return callback err, null
+
+      if not obj.account?.hosted_login_token
+        return callback { error: "You do not have a recurly hosted_login_token. Contact hello@scraperwiki.com for help." }, null
+
+      callback null, "https://#{process.env.RECURLY_DOMAIN}.recurly.com/account/#{obj.account.hosted_login_token}"
 
   @canCreateDataset: (user, callback) ->
     {Dataset} = require 'model/dataset'
@@ -133,7 +151,6 @@ class exports.User extends ModelBase
         statusCode: 404
         error: "Plan not found"
 
-    console.log user
     Dataset.countVisibleDatasets user.shortName, (err, count) ->
       if count >= plan.maxNumDatasets
         callback
@@ -141,23 +158,6 @@ class exports.User extends ModelBase
           error: "You must upgrade your plan to create another dataset"
       else
         callback null, true
-
-  # Sends a list of box sshkeys to cobalt for each box a user
-  # can access, so cobalt can overwite the authorized_keys for a box
-  @distributeUserKeys: (shortName, callback) ->
-    Box.findAllByUser shortName, (err, boxes) ->
-      async.forEach boxes, (box, boxCb) ->
-        # call cobalt with list of sshkeys of box
-        # sshkeys <--> user <--> box
-        box = Box.makeModelFromMongo box
-        box.distributeSSHKeys (err, res, body) ->
-          try
-            obj = JSON.parse body
-          catch e
-            return boxCb e
-          return boxCb obj?.error if obj?.error?
-          return boxCb err
-      , callback
 
   @findByShortName: (shortName, callback) ->
     @dbClass.findOne {shortName: shortName}, (err, user) =>
@@ -169,6 +169,60 @@ class exports.User extends ModelBase
       else
         callback null, null
 
+  @findByEmail: (email, callback) ->
+    # Beware: Unlike shortNames, email addresses are not unique in ScraperWiki.
+    # Therefore, this function returns a list of matching user objects.
+    @dbClass.find {email: email}, (err, users) =>
+      if err?
+        console.warn err
+        callback err, null
+      if users?
+        callback null, (@makeModelFromMongo user for user in users)
+      else
+        callback null, null
+
+  @sendPasswordReset: (criteria, callback) ->
+    # `criteria` should be an object with either a `shortName` or `email` key.
+    # `callback` is called when the mail has been sent: It will be
+    # passed a single `err` argument if something goes wrong.
+
+    # Decide if we are fishing by shortName or fishing by email.
+    # In either case fishForUser will pass an error and a list to its
+    # callback.
+    if criteria.shortName
+      fishForUser = (cb) ->
+        User.findByShortName criteria.shortName, (err, user) ->
+          if user
+            cb err, [user]
+          else
+            cb err, []
+    else
+      fishForUser = (cb) ->
+        User.findByEmail criteria.email, cb
+
+    # Add a .token property to each user object.
+    getToken = (user, cb) ->
+      Token.findByShortName user.shortName, (err, token) ->
+        # TODO(drj,zarino) should we just create a token here?
+        if not err
+          user.token = token.token
+        cb null, user
+
+    fishForUser (err, userList) ->
+      if userList.length == 0
+        callback 'user not found'
+      else
+        async.map userList, getToken, (err, augmentedUserList) ->
+          filteredUserList = _.filter augmentedUserList, (it) -> 'token' of it
+          if filteredUserList.length == 0
+            callback 'token not found'
+          else
+            email.passwordResetEmail filteredUserList, (err) ->
+              if err?
+                callback 'email not sent'
+              else
+                callback null
+
   # Add and email the user
   @add: (opts, callback) ->
     recurlyRand = String(Math.random()).replace('0.', '')
@@ -177,13 +231,19 @@ class exports.User extends ModelBase
       displayName: opts.newUser.displayName
       email: opts.newUser.email
       apikey: uuid.v4()
-      accountLevel: 'free'
+      accountLevel: 'free-trial'
+      planExpires: undefined
       recurlyAccount: "#{opts.newUser.shortName}.#{recurlyRand}"
       acceptedTerms: opts.newUser.acceptedTerms
 
     if opts.requestingUser?.isStaff
-      newUser.accountLevel = opts.newUser.accountLevel or 'free'
+      newUser.accountLevel = opts.newUser.accountLevel or 'free-trial'
       newUser.acceptedTerms = 0
+
+    if newUser.accountLevel == 'free-trial'
+      expirationDate = new Date()
+      expirationDate.setDate(expirationDate.getDate() + 30)
+      newUser.planExpires = expirationDate
 
     if opts.newUser.logoUrl?
       newUser.logoUrl = opts.newUser.logoUrl
@@ -214,37 +274,68 @@ class exports.User extends ModelBase
         else
           console.log 'MailChimpAPI.listSubscribe() returned false while adding user, but there was no error (!?)', newUser
 
-    new User(newUser).save (err) ->
-      if err?
-        err.action = 'save'
-        callback err, null
+    checkDefaultContextExists = (defaultContext, user, callback) ->
+      # [defaultContext] should be either a string or undefined
+      # [user] should be a user object the defaultContext will be added to
+      # [callback] will be passed an error object and a copy of the [user] object
+      if defaultContext
+        User.findByShortName defaultContext, (err, context) ->
+          if context
+            user.defaultContext = defaultContext
+            return callback null, user
+          else
+            return callback "Can't find specified default context", null
+      else
+        return callback null, user
 
-      User.findByShortName newUser.shortName, (err, user) ->
-        if user?
-          token = String(Math.random()).replace('0.', '')
-          new Token({token: token, shortName: user.shortName}).save (err) ->
-            # 201 Created, RFC2616
-            userobj = user.objectify()
-            # TODO: sort out email templates so we can enable this
-            # Don't email if staff are creating at the moment
-            if opts.requestingUser?.isStaff is true
-              userobj.token = token
-              if err?
-                err.action = 'token'
-                callback err, null
-              else
-                callback null, userobj
-            else
-              signUpEmail user, token, (err) ->
+    checkDefaultContextExists opts.newUser.defaultContext, newUser, (err, newUser) ->
+      if err
+        # there was a problem looking up the defaultContext
+        return callback err, null
+
+      # newUser settings are ready: save them into a new model
+      new User(newUser).save (err) ->
+        if err?
+          err.action = 'save'
+          return callback err, null
+
+        User.findByShortName newUser.shortName, (err, user) ->
+          if user?
+            if user.defaultContext
+              User.findByShortName user.defaultContext, (err, context) ->
+                context.canBeReally.push(newUser.shortName)
+                # TODO: Maybe we should handle the unlikely case that
+                # this context can't be saved, and we're left with a
+                # user with a defaultContext that isn't reflected in
+                # the target context's canBeReally field.
+                context.save()
+
+            token = String(Math.random()).replace('0.', '')
+            new Token({token: token, shortName: user.shortName}).save (err) ->
+              # 201 Created, RFC2616
+              userobj = user.objectify()
+              # TODO: sort out email templates so we can enable this
+              # Don't email if staff are creating at the moment
+              if opts.requestingUser?.isStaff is true
+                userobj.token = token
                 if err?
-                  err.action = "email"
-                  callback err, null
+                  err.action = 'token'
+                  return callback err, null
                 else
-                  callback null, userobj
-        else
-          callback "Can't find user", null
+                  return callback null, userobj
+              else
+                email.signUpEmail user, token, (err) ->
+                  if err?
+                    err.action = "email"
+                    return callback err, null
+                  else
+                    return callback null, userobj
+          else
+            return callback "Can't find user", null
 
   @findCanBeReally: (shortName, callback) ->
+    # find and return all user objects where
+    # the canBeReally list includes [shortName]
     @find canBeReally: shortName, callback
 
 exports.dbInject = (dbObj) ->

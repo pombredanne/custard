@@ -1,3 +1,5 @@
+require '../setup_teardown'
+
 mongoose = require 'mongoose'
 _ = require 'underscore'
 util = require 'util'
@@ -15,7 +17,7 @@ describe 'Client model: Dataset', ->
     helper.evalConcatenatedFile 'client/code/model/view.coffee'
   unless Cu.Model.Dataset?
     helper.evalConcatenatedFile 'client/code/model/dataset.coffee'
-  helper.evalConcatenatedFile 'shared/vendor/js/humane.js'
+  helper.evalConcatenatedFile 'shared/vendor/js/moment.min.js'
 
   describe 'URL', ->
     beforeEach ->
@@ -185,7 +187,7 @@ describe 'Server model: Dataset', ->
       after ->
         Dataset.dbClass.prototype.save.restore()
         RedisClient.debouncedPublish.restore()
-        RedisClient.client.end()
+        RedisClient.client?.end?()
 
       before (done) ->
         @dataset = new Dataset
@@ -197,6 +199,13 @@ describe 'Server model: Dataset', ->
             {box: 'foo'}
             {box: 'bar'}
           ]
+          boxServer: "anExample-boxServer"
+          user: "anExample-user"
+          status: "anExample-status"
+          boxJSON: "anExample-boxJSON"
+          creatorShortName: "anExample-creatorShortName"
+          creatorDisplayName: "anExample-creatorDisplayName"
+
         @dataset.updateStatus
           type: 'ok'
           message: 'I scrapped some page :D'
@@ -215,13 +224,30 @@ describe 'Server model: Dataset', ->
 
       it 'publishes the update to redis', ->
         channel = "#{process.env.NODE_ENV}.cobalt.dataset.box.update"
-        message = JSON.stringify
+        expectedMessage =
           boxes: ['foo', 'bar']
           type: 'ok'
           message: 'I scrapped some page :D'
+          origin:
+            box: @dataset.box
+            boxServer: @dataset.boxServer
+            user: @dataset.user
+            tool: @dataset.tool
+            displayName: @dataset.displayName
+            views: @dataset.views
+            boxJSON: @dataset.boxJSON
+            createdDate: @dataset.createdDate
+            creatorShortName: @dataset.creatorShortName
+            creatorDisplayName: @dataset.creatorDisplayName
 
-        published = @publishStub.calledWith @dataset.box, channel, message
-        published.should.be.true
+        # Get the last call
+        call = @publishStub.getCall @publishStub.callCount - 1
+
+        expected = [@dataset.box, channel, expectedMessage]
+        got = [call.args[0], call.args[1], JSON.parse(call.args[2])]
+
+        correct = _.isEqual got, expected
+        correct.should.be.true
 
     context 'with an unknown type', ->
       before ->
@@ -280,40 +306,3 @@ describe 'Server model: Dataset', ->
     it """returns "Never" when there is no status""", ->
       humanDate = @never.statusUpdatedHuman()
       should.equal humanDate, "Never"
-
-  context 'when dataset.findToBeDeleted is called', ->
-    it 'returns datasets with toBeDeleted in the past', (done) ->
-      Dataset.findToBeDeleted (err, datasets) ->
-        datasets.length.should.equal 2
-        done(err)
-
-  context 'when dataset.cleanCrontab is called', ->
-    before ->
-      @dataset = new Dataset
-        user: 'zarino'
-        box: '2416349265'
-
-      @requestStub = sinon.stub request, 'post', (options, callback) ->
-        callback null, {statusCode: 200}, {}
-
-      @saveSpy = sinon.spy Dataset.prototype, 'save'
-
-    after ->
-      Dataset.prototype.save.restore()
-      request.post.restore()
-
-    it 'should call the exec endpoint correctly', (done) ->
-      @dataset.cleanCrontab (err) =>
-        calledCorrectly = @requestStub.calledWith
-          followAllRedirects: true
-          uri: sinon.match /2416349265/
-          form:
-            apikey: 'zarino'
-            cmd: sinon.match /crontab -r/
-        calledCorrectly.should.be.true
-
-        done()
-
-    it 'if successful, it should set toBeDeleted to null', ->
-      should.not.exist @dataset.toBeDeleted
-      @saveSpy.calledOnce.should.be.true
